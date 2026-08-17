@@ -1,0 +1,58 @@
+@import 'tailwindcss';
+
+/* React Flow нужны собственные стили — без них узлы не позиционируются */
+@import '@xyflow/react/dist/style.css';
+
+/**
+ * Тёмная тема как база.
+ *
+ * Граф движения средств — инструмент, в котором подолгу сидят, вглядываясь
+ * в связи. Тёмный фон снижает утомление и даёт цветным акцентам (подозрительный
+ * узел, направление потока) работать в полную силу: на белом они выцветают.
+ */
+@theme {
+  --color-base: #0b0e14;
+  --color-surface: #141821;
+  --color-surface-2: #1c2130;
+  --color-line: #262c3a;
+
+  --color-ink: #e6e9ef;
+  --color-muted: #8b94a7;
+
+  --color-accent: #4c8dff;
+  --color-in: #35c48a;
+  --color-out: #ff7a59;
+  --color-danger: #ff4d6a;
+  --color-group: #7c6cff;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-base);
+  color: var(--color-ink);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Полосы прокрутки в тон теме, иначе светлые системные режут глаз */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-2);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-line);
+}
