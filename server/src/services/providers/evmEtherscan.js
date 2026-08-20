@@ -382,6 +382,96 @@ function reorgBufferBlocks(network) {
 }
 
 /**
+ * Кэш горизонта: chainId -> { block, expiresAt }.
+ *
+ * Горизонт сдвигается со скоростью цепи, то есть медленно в масштабе
+ * запроса. Держим 10 минут, чтобы не тратить обращение к API на каждый
+ * из трёх источников и на каждый адрес.
+ */
+const horizonCache = new Map();
+const HORIZON_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Запросы горизонта, которые сейчас в полёте: chainId -> Promise.
+ *
+ * Три источника стартуют через Promise.all и упираются в пустой кэш
+ * одновременно — без этого получалось три одинаковых запроса вместо
+ * одного. Кэшируем не результат, а обещание.
+ */
+const horizonInflight = new Map();
+
+/**
+ * Нижняя граница выборки: глубже горизонта графа не копаем.
+ *
+ * Показываем мы последние GRAPH_DAYS дней — значит и догонять хвост глубже
+ * бессмысленно. Без этого «загрузить ещё» тянет историю до самого первого
+ * перевода адреса: запросы, трафик и строки в базе ради данных, которые
+ * граф всё равно отфильтрует при чтении. В tronGrid.js это applyHorizon().
+ *
+ * ПОЧЕМУ ОТДЕЛЬНЫЙ ЗАПРОС, А НЕ ОЦЕНКА ЧЕРЕЗ СРЕДНЕЕ ВРЕМЯ БЛОКА.
+ * Оценка врёт, и сильно: для Arbitrum со средним временем блока около
+ * секунды расчёт даёт вчетверо меньшую глубину, чем есть на самом деле, —
+ * горизонт в 30 дней превратился бы в 7. Эндпоинт getblocknobytime
+ * отвечает точным номером и на бесплатном тарифе открыт.
+ *
+ * GRAPH_DAYS=0 — без ограничения.
+ *
+ * @param {object} network
+ * @returns {Promise<number>} номер блока, ниже которого не опускаемся
+ */
+async function horizonBlock(network) {
+  if (config.app.graphDays <= 0) return 0;
+
+  const cached = horizonCache.get(network.chainId);
+  if (cached && cached.expiresAt > Date.now()) return cached.block;
+
+  const inflight = horizonInflight.get(network.chainId);
+  if (inflight) return inflight;
+
+  const request = requestHorizon(network).finally(() => {
+    horizonInflight.delete(network.chainId);
+  });
+
+  horizonInflight.set(network.chainId, request);
+  return request;
+}
+
+/**
+ * Собственно запрос горизонта. Вынесен отдельно, чтобы horizonBlock()
+ * занимался только кэшированием.
+ *
+ * @param {object} network
+ * @returns {Promise<number>}
+ */
+async function requestHorizon(network) {
+  const timestamp = Math.floor(Date.now() / 1000) - config.app.graphDays * 24 * 60 * 60;
+
+  let block = 0;
+
+  try {
+    const result = await get(network, {
+      module: 'block',
+      action: 'getblocknobytime',
+      timestamp,
+      closest: 'before',
+    });
+
+    const parsed = Number(result);
+    if (Number.isFinite(parsed) && parsed > 0) block = parsed;
+  } catch (error) {
+    // Горизонт — оптимизация, а не корректность. Не смогли узнать —
+    // работаем без него, но повторим попытку после истечения кэша
+    console.warn(
+      `[evmEtherscan] горизонт для chainid=${network.chainId} недоступен: ${error.message}`,
+    );
+    return 0;
+  }
+
+  horizonCache.set(network.chainId, { block, expiresAt: Date.now() + HORIZON_TTL_MS });
+  return block;
+}
+
+/**
  * Забрать одну пачку записей источника и отрезать её по границе блока.
  *
  * ПОЧЕМУ ГРАНИЦА ИМЕННО ПО БЛОКУ. Если оборвать пачку на произвольной
@@ -476,7 +566,8 @@ async function fetchSource(network, action, addr, rawState, { loadMore = false }
     ? config.app.firstFetchPages
     : config.app.maxPagesPerFetch;
 
-  let startBlock = 0;
+  // Глубже горизонта не копаем ни в одном из режимов, включая первый заход
+  let startBlock = await horizonBlock(network);
   let endBlock = 99_999_999;
 
   if (loadMore && state.pendingMinBlock) {
@@ -486,7 +577,7 @@ async function fetchSource(network, action, addr, rawState, { loadMore = false }
     // Вверх: с запасом на реорганизацию — последние блоки не окончательны,
     // и перезапрос этого отрезка (с upsert) исправит данные, если цепь
     // откатилась
-    startBlock = Math.max(0, state.lastBlock - reorgBufferBlocks(network));
+    startBlock = Math.max(startBlock, state.lastBlock - reorgBufferBlocks(network));
   }
 
   const collected = [];
@@ -691,6 +782,7 @@ export const __testing = {
   fetchChunk,
   fetchSource,
   reorgBufferBlocks,
+  horizonBlock,
   toDate,
   PAGE_SIZE,
 };

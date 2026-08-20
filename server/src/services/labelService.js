@@ -242,6 +242,24 @@ export async function getLabels(networkKey, addresses, { force = false } = {}) {
     };
   }
 
+  // У сетей без TronScan разметки нет: адрес `${undefined}/api/account/tag`
+  // ушёл бы в никуда, и на каждый узел графа тратилась бы пауза
+  // троттлинга — 350 мс на адрес впустую. Возвращаем то, что в базе
+  if (!network.api?.tronScan) {
+    return {
+      labels,
+      stats: {
+        requested: unique.length,
+        fromCache: unique.length,
+        fetched: 0,
+        failed: 0,
+        // Нулевой pending важен: фронт повторяет запрос, пока это
+        // значение больше нуля, — иначе получили бы вечный цикл
+        pending: 0,
+      },
+    };
+  }
+
   await runThrottled(batch, async (address) => {
     const result = await fetchLabel(network.api.tronScan, address);
 
