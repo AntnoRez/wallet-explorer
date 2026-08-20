@@ -671,7 +671,7 @@ export async function fetchTransfers(address, rawSyncState, options = {}) {
  *
  * @param {string} address base58
  * @returns {Promise<{
- *   trx: { balance: string, frozen: string, decimals: number, symbol: string },
+ *   native: { balance: string, frozen: string, decimals: number, symbol: string },
  *   tokens: Array<{ contractAddress: string, balance: string }>,
  * }>}
  */
@@ -698,7 +698,9 @@ export async function fetchBalance(address) {
   );
 
   return {
-    trx: {
+    // Ключ native, а не trx: имя поля общее для всех сетей, иначе фронту
+    // пришлось бы знать, какую сеть он сейчас показывает
+    native: {
       balance,
       frozen: frozen.toString(),
       decimals: network.nativeDecimals,

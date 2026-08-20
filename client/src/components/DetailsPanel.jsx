@@ -83,7 +83,7 @@ function WalletSummary() {
   }
 
   const { balance, graph, sync, query, address } = wallet;
-  const trxDecimals = balance?.trx?.decimals ?? 6;
+  const nativeDecimals = balance?.native?.decimals ?? 6;
 
   return (
     <div>
@@ -92,7 +92,7 @@ function WalletSummary() {
       </Section>
 
       {balance && !balance.unavailable && (
-        <BalanceSection balance={balance} trxDecimals={trxDecimals} />
+        <BalanceSection balance={balance} nativeDecimals={nativeDecimals} />
       )}
 
       <Section title="Граф">
@@ -159,7 +159,7 @@ function WalletSummary() {
  * токен может оказаться важным, а решать за пользователя, что ему не нужно,
  * инструмент расследования не должен.
  */
-function BalanceSection({ balance, trxDecimals }) {
+function BalanceSection({ balance, nativeDecimals }) {
   const [showSpam, setShowSpam] = useState(false);
 
   const tokens = balance.tokens ?? [];
@@ -172,14 +172,14 @@ function BalanceSection({ balance, trxDecimals }) {
     <Section title="Баланс">
       <div className="flex items-baseline justify-between">
         <span className="text-lg font-semibold text-ink">
-          {formatAmount(balance.trx.balance, trxDecimals)}
+          {formatAmount(balance.native.balance, nativeDecimals)}
         </span>
-        <span className="text-xs text-muted">{balance.trx.symbol}</span>
+        <span className="text-xs text-muted">{balance.native.symbol}</span>
       </div>
 
-      {balance.trx.frozen !== '0' && (
+      {balance.native.frozen !== '0' && (
         <div className="mt-1 text-[11px] text-muted">
-          заморожено: {formatAmount(balance.trx.frozen, trxDecimals)}
+          заморожено: {formatAmount(balance.native.frozen, nativeDecimals)}
         </div>
       )}
 

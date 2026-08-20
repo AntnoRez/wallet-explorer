@@ -495,8 +495,10 @@ async function fetchSource(network, action, addr, rawState, { loadMore = false }
     }
 
     oldestReached = chunk.oldestBlock;
-    // Следующая пачка — строго ниже уже прочитанного
-    endBlock = chunk.oldestBlock - 1;
+    // Следующая пачка начинается С ЭТОГО ЖЕ блока, а не ниже него:
+    // fetchChunk() вернул границу как «первый НЕпрочитанный блок».
+    // Минус единица здесь пропускала бы его навсегда
+    endBlock = chunk.oldestBlock;
 
     if (endBlock < startBlock) {
       exhausted = true;
@@ -514,8 +516,12 @@ async function fetchSource(network, action, addr, rawState, { loadMore = false }
   let pendingMinBlock = state.pendingMinBlock ?? null;
 
   if (exhausted) {
-    // Дочитали до дна диапазона — хвоста в нём больше нет
-    pendingMinBlock = null;
+    // Дочитали до дна ЗАПРОШЕННОГО диапазона. Но обнулять хвост можно
+    // только если шли вниз: заход вверх вычерпывает лишь свежий отрезок
+    // [lastBlock - буфер, ...], а непрочитанный промежуток НИЖЕ от этого
+    // никуда не делся. Обнуление здесь гасило бы кнопку «загрузить ещё»
+    // и делало старые переводы недостижимыми навсегда
+    pendingMinBlock = loadMore ? null : (state.pendingMinBlock ?? null);
   } else if (oldestReached !== null) {
     // Уперлись в потолок страниц: запоминаем, где встали. Выше не поднимаем,
     // иначе следующая догрузка заново прошла бы уже прочитанное
@@ -606,6 +612,8 @@ export async function fetchBalance(networkKey, addr) {
   const balance = typeof result === 'string' ? result : '0';
 
   return {
+    // Ключ native, а не trx: поле называется по смыслу, а не по сети.
+    // tronGrid.js приведён к тому же имени
     native: {
       balance,
       // Заморозки под ресурсы, как в Tron, в EVM нет
