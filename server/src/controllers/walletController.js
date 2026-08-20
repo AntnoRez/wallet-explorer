@@ -354,6 +354,14 @@ export async function getNetworks(_req, res) {
       nativeDecimals: network.nativeDecimals,
       addressFormat: network.addressFormat,
       explorer: network.explorer.base,
+
+      // Шаблоны ссылок, а не готовые адреса: у каждого обозревателя своя
+      // форма пути ("/tx/HASH" против "/#/transaction/HASH"), и фронт
+      // не должен её знать. Подставляем плейсхолдер в те же функции,
+      // которыми строятся настоящие ссылки, — так шаблон не разъедется
+      // с реальностью при смене обозревателя
+      explorerTx: network.explorer.tx('{hash}'),
+      explorerAddress: network.explorer.address('{address}'),
     })),
   });
 }

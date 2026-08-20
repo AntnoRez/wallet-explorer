@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchTransfers } from '../api/client.js';
-import { useGraphStore } from '../store/graphStore.js';
+import { useGraphStore, useCurrentNetwork } from '../store/graphStore.js';
+import { explorerLink } from '../address.js';
 import { formatAmount, formatAge, formatDateTime, shortenAddress, plural } from '../format.js';
 
 /**
@@ -181,6 +182,7 @@ function Chip({ children, active, onClick, tone }) {
 }
 
 function TransferRow({ transfer, rootAddress, onOpenAddress }) {
+  const currentNetwork = useCurrentNetwork();
   const outgoing = transfer.fromAddress === rootAddress;
   const counterparty = outgoing ? transfer.toAddress : transfer.fromAddress;
 
@@ -192,7 +194,7 @@ function TransferRow({ transfer, rootAddress, onOpenAddress }) {
 
       <td className="px-3 py-1.5">
         <a
-          href={`https://tronscan.org/#/transaction/${transfer.hash}`}
+          href={explorerLink(currentNetwork?.explorerTx, { hash: transfer.hash })}
           target="_blank"
           rel="noreferrer"
           className="font-mono text-muted hover:text-accent"
@@ -246,8 +248,11 @@ function TransferRow({ transfer, rootAddress, onOpenAddress }) {
  * приходится искать отдельно, а для разбора движения средств они важны.
  */
 function TypeBadge({ type }) {
+  const currentNetwork = useCurrentNetwork();
+
   const map = {
-    native: { text: 'TRX', cls: 'border-line text-muted' },
+    // Символ монеты берём у сети: TRX, POL или ETH — смотря где смотрим
+    native: { text: currentNetwork?.nativeSymbol ?? 'монета', cls: 'border-line text-muted' },
     token: { text: 'токен', cls: 'border-line text-muted' },
     internal: { text: 'внутр.', cls: 'border-group/40 text-group' },
   };

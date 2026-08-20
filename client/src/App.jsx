@@ -7,6 +7,7 @@ import DetailsPanel from './components/DetailsPanel.jsx';
 import FiltersBar from './components/FiltersBar.jsx';
 import { useGraphStore } from './store/graphStore.js';
 import { plural } from './format.js';
+import { detectFamily } from './address.js';
 
 /** Адрес для первого запуска, чтобы не начинать с пустого экрана */
 const DEMO_ADDRESS = 'TWS1onJnNTg8tJHomceqxBxTsUB1DHh7PV';
@@ -23,10 +24,16 @@ export default function App() {
   const rootAddress = useGraphStore((state) => state.rootAddress);
   const view = useGraphStore((state) => state.view);
   const setView = useGraphStore((state) => state.setView);
+  const networks = useGraphStore((state) => state.networks);
+  const network = useGraphStore((state) => state.network);
+  const setNetwork = useGraphStore((state) => state.setNetwork);
+  const loadNetworks = useGraphStore((state) => state.loadNetworks);
 
   useEffect(() => {
-    load(DEMO_ADDRESS);
-  }, [load]);
+    // Справочник сетей нужен до первого запроса: по нему выбирается сеть
+    // для адреса. Ждём его, иначе первый адрес уйдёт в сеть по умолчанию
+    loadNetworks().then(() => load(DEMO_ADDRESS));
+  }, [load, loadNetworks]);
 
   // Поле ввода следует за графом: перешли по узлу — в поле новый адрес.
   // Иначе там остаётся то, что вводили руками, и непонятно, чей граф открыт
@@ -59,7 +66,7 @@ export default function App() {
           onKeyDown={(event) => event.key === 'Enter' && submit()}
           spellCheck={false}
           className="w-[400px] rounded-md border border-line bg-surface-2 px-3 py-2 font-mono text-sm text-ink outline-none transition-colors focus:border-accent"
-          placeholder="Адрес Tron — начинается с T"
+          placeholder="Адрес кошелька — T… для Tron, 0x… для EVM-сетей"
         />
 
         <button
@@ -69,6 +76,14 @@ export default function App() {
         >
           Показать
         </button>
+
+        <NetworkTabs
+          address={rootAddress}
+          networks={networks}
+          current={network}
+          disabled={status === 'loading'}
+          onSelect={setNetwork}
+        />
 
         {/* Переключатель видов: граф и таблица показывают одни данные */}
         <div className="flex rounded-md border border-line bg-surface-2 p-0.5">
@@ -128,6 +143,43 @@ export default function App() {
           <DetailsPanel />
         </aside>
       </main>
+    </div>
+  );
+}
+
+/**
+ * Выбор сети внутри семейства EVM.
+ *
+ * Показывается ТОЛЬКО для адресов 0x… и только если таких сетей больше
+ * одной. Для Tron выбора нет: адрес base58 однозначно принадлежит одной
+ * сети, и переключатель был бы лишним кликом ни за чем.
+ *
+ * Для EVM выбор неизбежен: один и тот же адрес существует в Ethereum,
+ * Polygon и Arbitrum одновременно, с разной историей в каждой. Определить
+ * «нужную» по самому адресу невозможно — это не свойство адреса.
+ */
+function NetworkTabs({ address, networks, current, disabled, onSelect }) {
+  const family = detectFamily(address);
+  const options = networks.filter((network) => network.family === family);
+
+  if (family !== 'evm' || options.length < 2) return null;
+
+  return (
+    <div className="flex rounded-md border border-line bg-surface-2 p-0.5">
+      {options.map((network) => (
+        <button
+          key={network.key}
+          onClick={() => onSelect(network.key)}
+          disabled={disabled}
+          title={`Показать историю адреса в сети ${network.name}`}
+          className={[
+            'rounded px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50',
+            network.key === current ? 'bg-accent text-white' : 'text-muted hover:text-ink',
+          ].join(' ')}
+        >
+          {network.name}
+        </button>
+      ))}
     </div>
   );
 }

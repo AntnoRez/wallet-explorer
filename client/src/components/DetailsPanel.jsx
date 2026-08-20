@@ -261,7 +261,7 @@ function NodeDetails({ node }) {
   const expandNode = useGraphStore((state) => state.expandNode);
   const expandGroup = useGraphStore((state) => state.expandGroup);
   const rootAddress = useGraphStore((state) => state.rootAddress);
-  const network = useGraphStore((state) => state.network);
+  const currentNetwork = useCurrentNetwork();
   const wallet = useGraphStore((state) => state.wallet);
 
   if (node.isGroup) {
@@ -286,7 +286,7 @@ function NodeDetails({ node }) {
     );
   }
 
-  const explorer = `https://tronscan.org/#/address/${node.address}`;
+  const explorer = explorerLink(currentNetwork?.explorerAddress, { address: node.address });
   const isRoot = node.address === rootAddress;
 
   return (
@@ -544,11 +544,12 @@ function EdgeDetails({ edge }) {
 }
 
 function TransferRow({ transfer, anchor }) {
+  const currentNetwork = useCurrentNetwork();
   const outgoing = transfer.fromAddress === anchor;
 
   return (
     <a
-      href={`https://tronscan.org/#/transaction/${transfer.hash}`}
+      href={explorerLink(currentNetwork?.explorerTx, { hash: transfer.hash })}
       target="_blank"
       rel="noreferrer"
       className="flex items-baseline gap-2 rounded px-1 py-1 text-[11px] hover:bg-surface-2"

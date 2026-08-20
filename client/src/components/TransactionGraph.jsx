@@ -12,7 +12,7 @@ import {
 
 import AddressNode, { nodeDiameter } from './AddressNode.jsx';
 import FloatingEdge from './FloatingEdge.jsx';
-import { collectPositions, layoutGraph } from '../graph/layout.js';
+import { layoutGraph } from '../graph/layout.js';
 import { useGraphStore, withLabels } from '../store/graphStore.js';
 
 /** Типы объявляем вне компонента: иначе React Flow пересоздаёт их каждый рендер */

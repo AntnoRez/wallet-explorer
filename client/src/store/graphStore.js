@@ -8,7 +8,8 @@
  */
 
 import { create } from 'zustand';
-import { fetchWallet, fetchLabels, ApiError } from '../api/client.js';
+import { fetchWallet, fetchLabels, fetchNetworks, ApiError } from '../api/client.js';
+import { pickNetwork } from '../address.js';
 
 /** Префикс сводного узла «+N адресов» */
 const OTHERS_PREFIX = '__others__';
@@ -97,7 +98,14 @@ const DEFAULT_FILTERS = {
 };
 
 export const useGraphStore = create((set, get) => ({
+  /**
+   * Текущая сеть. Не константа: она выбирается по виду введённого адреса,
+   * см. loadNetworks() и load().
+   */
   network: 'tron',
+
+  /** Справочник сетей с сервера: ключи, символы, шаблоны ссылок */
+  networks: [],
 
   /** Адрес в центре графа */
   rootAddress: null,
@@ -160,8 +168,49 @@ export const useGraphStore = create((set, get) => ({
    *   refresh  — игнорировать кэш на сервере
    *   loadMore — догрузить более старые переводы
    */
+  /**
+   * Забрать справочник сетей.
+   *
+   * Нужен до первого запроса: по нему выбирается сеть для адреса и берутся
+   * шаблоны ссылок на обозреватель. Без него фронту пришлось бы знать, что
+   * у Tronscan путь `/#/transaction/`, а у остальных `/tx/`.
+   */
+  loadNetworks: async () => {
+    if (get().networks.length > 0) return;
+
+    try {
+      const { networks, default: fallback } = await fetchNetworks();
+      set((state) => ({
+        networks,
+        // Сеть по умолчанию берём с сервера, но не затираем ту, что
+        // пользователь мог уже выбрать вручную
+        network: state.network ?? fallback,
+      }));
+    } catch {
+      // Справочник — удобство, а не необходимость: без него работаем
+      // с сетью по умолчанию и без ссылок на обозреватель
+    }
+  },
+
+  /** Сменить сеть и перестроить граф для того же адреса */
+  setNetwork: (key) => {
+    if (get().network === key) return;
+
+    set({ network: key, graph: EMPTY_GRAPH, selection: null });
+
+    const { rootAddress, load } = get();
+    if (rootAddress) load(rootAddress);
+  },
+
   load: async (address, { reset = true, refresh = false, loadMore = false } = {}) => {
-    const { network, filters } = get();
+    const { filters, networks } = get();
+
+    // Сеть определяется видом адреса: T... — Tron, 0x... — EVM. Если
+    // текущая сеть подходит по семейству, остаёмся в ней — пользователь,
+    // смотрящий Ethereum, не должен улетать в Polygon при вводе другого
+    // адреса EVM
+    const network = pickNetwork(address, get().network, networks) ?? get().network;
+    if (network !== get().network) set({ network });
 
     set({
       status: 'loading',
@@ -387,3 +436,14 @@ export function findSelected(selection, graph) {
   const edge = graph.edges.find((item) => item.id === selection.id);
   return edge ? { type: 'edge', edge } : null;
 }
+
+/**
+ * Описание текущей сети: символ монеты, шаблоны ссылок на обозреватель.
+ *
+ * Отдельный хук, потому что нужен половине компонентов, а собирать его
+ * из двух полей стора в каждом — лишний повод ошибиться. Возвращается
+ * элемент массива, а не новый объект: иначе Zustand считал бы состояние
+ * изменившимся на каждый рендер и уводил бы компонент в цикл.
+ */
+export const useCurrentNetwork = () =>
+  useGraphStore((state) => state.networks.find((network) => network.key === state.network));
