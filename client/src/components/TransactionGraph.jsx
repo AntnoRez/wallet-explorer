@@ -47,7 +47,6 @@ export default function TransactionGraph() {
   const clearSelection = useGraphStore((state) => state.clearSelection);
   const expandNode = useGraphStore((state) => state.expandNode);
   const expandGroup = useGraphStore((state) => state.expandGroup);
-  const chainStart = useGraphStore((state) => state.chainStart);
   const hasChain = useGraphStore((state) => state.pinned.size > 1);
 
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState([]);
@@ -117,7 +116,6 @@ export default function TransactionGraph() {
       graph.nodes,
       graph.edges,
       positionsRef.current,
-      chainStart,
       manualRef.current,
     );
     positionsRef.current = positions;
@@ -223,7 +221,6 @@ export default function TransactionGraph() {
     graph,
     nodesWithLabels,
     rootAddress,
-    chainStart,
     expanding,
     selection,
     pairSummary,
