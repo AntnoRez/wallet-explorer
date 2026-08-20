@@ -107,7 +107,14 @@ async function get(network, params) {
 
       if (body.status === '1') return result;
 
-      const text = String(result ?? body.message ?? '').toLowerCase();
+      // Пустой список при status "0" — это «данных нет», а не сбой.
+      // Проверять надо ДО разбора текста: у адреса без истории приходит
+      // {"status":"0","message":"No transactions found","result":[]},
+      // и String([]) даёт пустую строку, в которой маркеров не найти
+      if (Array.isArray(result)) return result;
+
+      // Текст ошибки бывает и в result, и в message — смотрим оба
+      const text = `${result ?? ''} ${body.message ?? ''}`.toLowerCase();
 
       // «Ничего не найдено» — это пустой ответ, а не сбой
       if (EMPTY_MARKERS.some((marker) => text.includes(marker))) return [];
@@ -217,7 +224,6 @@ function parseNativeTransfers(rows, network) {
       toAddress: to,
       value,
       tokenSymbol: network.nativeSymbol,
-      tokenName: network.nativeSymbol,
       tokenContractAddress: null,
       decimals: network.nativeDecimals,
       blockNumber: Number(row.blockNumber),
@@ -267,7 +273,6 @@ function parseTokenTransfers(rows, network) {
       toAddress: to,
       value,
       tokenSymbol: row.tokenSymbol || null,
-      tokenName: row.tokenName || null,
       tokenContractAddress: address(row.contractAddress),
       decimals: Number.isFinite(decimals) ? decimals : null,
       blockNumber: Number(row.blockNumber),
@@ -281,8 +286,15 @@ function parseTokenTransfers(rows, network) {
 /**
  * Внутренние переводы из txlistinternal.
  *
- * Здесь повезло: у каждой записи есть traceId вида "0_1" — готовый
- * уникальный индекс внутри транзакции. В Tron его пришлось собирать вручную.
+ * ВНИМАНИЕ: traceId ключом НЕ ГОДИТСЯ, хотя выглядит именно так. Проверено
+ * на живых данных — он повторяется внутри одной транзакции:
+ *
+ *   i:0_1_1_1_1   ETH 165500000000
+ *   i:0_1_1_1_1   ETH 993000000000   <- тот же traceId, другая сумма
+ *   i:0_1_1_1_1   ETH 198600000000
+ *
+ * Три записи схлопнулись бы в базе в одну. Поэтому индекс здесь такой же
+ * позиционный, как у токенов.
  *
  * @param {object[]} rows
  * @param {object} network
@@ -303,16 +315,13 @@ function parseInternalTransfers(rows, network) {
     transfers.push({
       network: network.key,
       hash: row.hash,
-      // Префикс не даёт столкнуться с native и token: у одной транзакции
-      // может быть и нативный перевод, и токенные, и внутренние — все
-      // с одним hash
-      transferIndex: `i:${row.traceId ?? '0'}`,
+      // Проставляется в assignTransferIndexes(), как у токенов
+      transferIndex: null,
       transferType: 'internal',
       fromAddress: from,
       toAddress: to,
       value,
       tokenSymbol: network.nativeSymbol,
-      tokenName: network.nativeSymbol,
       tokenContractAddress: null,
       decimals: network.nativeDecimals,
       blockNumber: Number(row.blockNumber),
@@ -345,13 +354,13 @@ function parseInternalTransfers(rows, network) {
  *
  * @param {object[]} transfers переводы одной пачки, в порядке ответа API
  */
-function assignTransferIndexes(transfers) {
+function assignTransferIndexes(transfers, prefix) {
   const seen = new Map();
 
   for (const transfer of transfers) {
     const position = seen.get(transfer.hash) ?? 0;
     seen.set(transfer.hash, position + 1);
-    transfer.transferIndex = `t:${position}`;
+    transfer.transferIndex = `${prefix}:${position}`;
   }
 
   return transfers;
@@ -563,8 +572,10 @@ export async function fetchTransfers(networkKey, addr, rawSyncState, options = {
 
   const transfers = [
     ...parseNativeTransfers(native.rows, network),
-    ...assignTransferIndexes(parseTokenTransfers(token.rows, network)),
-    ...parseInternalTransfers(internal.rows, network),
+    // Префиксы t и i не дают источникам столкнуться: у одной транзакции
+    // бывает и нативный перевод, и токенные, и внутренние — все с одним hash
+    ...assignTransferIndexes(parseTokenTransfers(token.rows, network), 't'),
+    ...assignTransferIndexes(parseInternalTransfers(internal.rows, network), 'i'),
   ];
 
   return {
