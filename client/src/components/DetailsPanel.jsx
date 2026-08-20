@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchTransfers } from '../api/client.js';
-import { useGraphStore, findSelected } from '../store/graphStore.js';
+import { useGraphStore, useCurrentNetwork, findSelected } from '../store/graphStore.js';
+import { explorerLink } from '../address.js';
 import { formatAmount, shortenAddress, formatDateTime, plural } from '../format.js';
 
 /**
