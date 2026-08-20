@@ -48,6 +48,7 @@ export default function TransactionGraph() {
   const expandNode = useGraphStore((state) => state.expandNode);
   const expandGroup = useGraphStore((state) => state.expandGroup);
   const chainStart = useGraphStore((state) => state.chainStart);
+  const hasChain = useGraphStore((state) => state.pinned.size > 1);
 
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState([]);
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState([]);
@@ -55,6 +56,15 @@ export default function TransactionGraph() {
 
   /** Позиции между пересчётами: чтобы раскрытие не раскидывало готовый граф */
   const positionsRef = useRef(new Map());
+
+  /**
+   * Позиции, заданные рукой.
+   *
+   * Держим отдельно от расчётных: расчётные пересчитываются и могут быть
+   * перебиты симуляцией, а эти — нет. Пока узел не откреплён явно, он
+   * стоит там, куда его поставили.
+   */
+  const manualRef = useRef(new Map());
 
   /**
    * Все связи между каждой парой адресов.
@@ -99,10 +109,17 @@ export default function TransactionGraph() {
       setFlowNodes([]);
       setFlowEdges([]);
       positionsRef.current = new Map();
+      manualRef.current = new Map();
       return;
     }
 
-    const positions = layoutGraph(graph.nodes, graph.edges, positionsRef.current, chainStart);
+    const positions = layoutGraph(
+      graph.nodes,
+      graph.edges,
+      positionsRef.current,
+      chainStart,
+      manualRef.current,
+    );
     positionsRef.current = positions;
 
     const labelsById = new Map(nodesWithLabels.map((node) => [node.id, node]));
@@ -132,6 +149,7 @@ export default function TransactionGraph() {
     // Сторона каждого узла относительно корня. Та же классификация, что
     // и в раскладке, — иначе цвет ребра мог бы разойтись с положением узла
     const directions = classifyDirections(graph.nodes, graph.edges, rootAddress);
+    const pinnedIds = new Set(graph.nodes.filter((node) => node.isPinned).map((node) => node.id));
 
     setFlowEdges(
       graph.edges.map((edge) => {
@@ -149,13 +167,21 @@ export default function TransactionGraph() {
         const isBoth =
           (isIncoming || isOutgoing) && directions.get(counterparty) === 'both';
 
+        // Связь между двумя закреплёнными — это звено цепочки, ради
+        // которого расследование и ведётся. Серым, как прочие связи
+        // между чужими адресами, её показывать неправильно: именно она
+        // отвечает на вопрос «дошли ли деньги отсюда туда»
+        const isChainLink = pinnedIds.has(edge.source) && pinnedIds.has(edge.target);
+
         const color = isBoth
           ? 'var(--color-both)'
           : isIncoming
             ? 'var(--color-in)'
             : isOutgoing
               ? 'var(--color-out)'
-              : 'var(--color-line)';
+              : isChainLink
+                ? 'var(--color-pin)'
+                : 'var(--color-line)';
 
         const isSelected = selection?.type === 'edge' && selection.id === edge.id;
 
@@ -181,7 +207,8 @@ export default function TransactionGraph() {
           style: {
             stroke: color,
             strokeWidth: isSelected ? MAX_WIDTH : widthOf(edge.weight),
-            opacity: isSelected ? 1 : 0.75,
+            // Звенья цепочки показываем в полную силу: они скелет картины
+            opacity: isSelected || isChainLink ? 1 : 0.75,
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -285,6 +312,20 @@ export default function TransactionGraph() {
     [expandNode, expandGroup],
   );
 
+  /**
+   * Запомнить, куда пользователь поставил узел.
+   *
+   * Раскладка держит позиции в positionsRef и при пересчёте закрепляет
+   * по ним уже размещённые узлы. Перетаскивание меняло положение только
+   * внутри React Flow, поэтому следующий же клик возвращал узел на
+   * рассчитанное место — рука пользователя проигрывала симуляции.
+   */
+  const onNodeDragStop = useCallback((_event, node) => {
+    const position = { x: node.position.x, y: node.position.y };
+    manualRef.current.set(node.id, position);
+    positionsRef.current.set(node.id, position);
+  }, []);
+
   const onEdgeClick = useCallback(
     (_event, edge) => select({ type: 'edge', id: edge.id }),
     [select],
@@ -301,6 +342,7 @@ export default function TransactionGraph() {
       edgeTypes={EDGE_TYPES}
       onNodeClick={onNodeClick}
       onNodeDoubleClick={onNodeDoubleClick}
+      onNodeDragStop={onNodeDragStop}
       onEdgeClick={onEdgeClick}
       onPaneClick={clearSelection}
       // Граф читают, а не редактируют
@@ -319,7 +361,7 @@ export default function TransactionGraph() {
       <Background color="#1c2130" gap={22} size={1} />
 
       <Panel position="top-left">
-        <Legend />
+        <Legend hasChain={hasChain} />
       </Panel>
       <Controls
         className="!border-line !bg-surface [&>button]:!border-line [&>button]:!bg-surface-2 [&>button]:!fill-muted hover:[&>button]:!bg-line"
@@ -354,12 +396,15 @@ function weightOfNode(node, edges) {
  * жёлтое ребро приходится угадывать. Стрелки в подписях повторяют
  * положение узлов на экране, чтобы связь читалась без объяснений.
  */
-function Legend() {
+function Legend({ hasChain }) {
   return (
     <div className="flex items-center gap-3 rounded-md border border-line bg-surface/80 px-2.5 py-1.5 text-[11px] backdrop-blur">
-      <LegendItem color="var(--color-in)" text="слева — прислали" />
-      <LegendItem color="var(--color-out)" text="справа — отправили" />
-      <LegendItem color="var(--color-both)" text="сверху и снизу — обмен" />
+      <LegendItem color="var(--color-in)" text="прислали" />
+      <LegendItem color="var(--color-out)" text="отправили" />
+      <LegendItem color="var(--color-both)" text="обмен" />
+      {/* Про цепочку рассказываем, только когда она есть: иначе подпись
+          объясняет то, чего пользователь ещё не видел */}
+      {hasChain && <LegendItem color="var(--color-pin)" text="★ цепочка" />}
     </div>
   );
 }

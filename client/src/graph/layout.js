@@ -149,9 +149,11 @@ const ITERATIONS = 260;
  * @param {object[]} nodes узлы графа (id, isCenter, weight…)
  * @param {object[]} edges рёбра (source, target)
  * @param {Map<string, {x: number, y: number}>} [pinned] уже размещённые узлы
+ * @param {string|null} [chainStart] начало цепочки расследования
+ * @param {Map<string, {x: number, y: number}>} [manual] позиции, заданные рукой
  * @returns {Map<string, {x: number, y: number}>} координаты по id
  */
-export function layoutGraph(nodes, edges, pinned = new Map(), chainStart = null) {
+export function layoutGraph(nodes, edges, pinned = new Map(), chainStart = null, manual = new Map()) {
   if (nodes.length === 0) return new Map();
 
   const centerNode = nodes.find((node) => node.isCenter);
@@ -187,6 +189,14 @@ export function layoutGraph(nodes, edges, pinned = new Map(), chainStart = null)
   // иначе он записал бы координаты и скорости прямо в узлы графа
   const simNodes = nodes.map((node) => {
     const previous = pinned.get(node.id);
+    const placed = manual.get(node.id);
+
+    // Поставленное рукой не двигаем НИКОГДА — даже центр и начало
+    // цепочки. Пользователь, расставивший узлы, знает о своей картине
+    // больше, чем симуляция
+    if (placed) {
+      return { id: node.id, isCenter: node.isCenter, fx: placed.x, fy: placed.y, x: placed.x, y: placed.y };
+    }
 
     return {
       id: node.id,
