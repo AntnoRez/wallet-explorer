@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Background,
   Controls,
+  Panel,
   MarkerType,
   ReactFlow,
   useEdgesState,
@@ -12,7 +13,7 @@ import {
 
 import AddressNode, { nodeDiameter } from './AddressNode.jsx';
 import FloatingEdge from './FloatingEdge.jsx';
-import { layoutGraph } from '../graph/layout.js';
+import { classifyDirections, layoutGraph } from '../graph/layout.js';
 import { useGraphStore, withLabels } from '../store/graphStore.js';
 
 /** Типы объявляем вне компонента: иначе React Flow пересоздаёт их каждый рендер */
@@ -126,6 +127,10 @@ export default function TransactionGraph() {
       }),
     );
 
+    // Сторона каждого узла относительно корня. Та же классификация, что
+    // и в раскладке, — иначе цвет ребра мог бы разойтись с положением узла
+    const directions = classifyDirections(graph.nodes, graph.edges, rootAddress);
+
     setFlowEdges(
       graph.edges.map((edge) => {
         // Направление считаем относительно КОРНЕВОГО адреса: зелёное —
@@ -133,11 +138,22 @@ export default function TransactionGraph() {
         // адресами направления «к нам» нет, поэтому нейтральный цвет.
         const isIncoming = edge.target === rootAddress;
         const isOutgoing = edge.source === rootAddress;
-        const color = isIncoming
-          ? 'var(--color-in)'
-          : isOutgoing
-            ? 'var(--color-out)'
-            : 'var(--color-line)';
+
+        // Контрагент, с которым обмен идёт в обе стороны, стоит по центру
+        // сверху или снизу — и обе его связи красим жёлтым. Иначе одна
+        // была бы зелёной, другая оранжевой, и узел читался бы как два
+        // разных случая сразу
+        const counterparty = isIncoming ? edge.source : edge.target;
+        const isBoth =
+          (isIncoming || isOutgoing) && directions.get(counterparty) === 'both';
+
+        const color = isBoth
+          ? 'var(--color-both)'
+          : isIncoming
+            ? 'var(--color-in)'
+            : isOutgoing
+              ? 'var(--color-out)'
+              : 'var(--color-line)';
 
         const isSelected = selection?.type === 'edge' && selection.id === edge.id;
 
@@ -298,6 +314,10 @@ export default function TransactionGraph() {
       className="bg-base"
     >
       <Background color="#1c2130" gap={22} size={1} />
+
+      <Panel position="top-left">
+        <Legend />
+      </Panel>
       <Controls
         className="!border-line !bg-surface [&>button]:!border-line [&>button]:!bg-surface-2 [&>button]:!fill-muted hover:[&>button]:!bg-line"
         showInteractive={false}
@@ -322,4 +342,30 @@ function weightOfNode(node, edges) {
     if (edge.source === node.id || edge.target === node.id) total += edge.weight ?? 0;
   }
   return total;
+}
+
+/**
+ * Легенда сторон.
+ *
+ * Стороны и цвета — соглашение, а не общеизвестный факт: без подписи
+ * жёлтое ребро приходится угадывать. Стрелки в подписях повторяют
+ * положение узлов на экране, чтобы связь читалась без объяснений.
+ */
+function Legend() {
+  return (
+    <div className="flex items-center gap-3 rounded-md border border-line bg-surface/80 px-2.5 py-1.5 text-[11px] backdrop-blur">
+      <LegendItem color="var(--color-in)" text="слева — прислали" />
+      <LegendItem color="var(--color-out)" text="справа — отправили" />
+      <LegendItem color="var(--color-both)" text="сверху и снизу — обмен" />
+    </div>
+  );
+}
+
+function LegendItem({ color, text }) {
+  return (
+    <span className="flex items-center gap-1.5 text-muted">
+      <span className="h-0.5 w-4 rounded" style={{ background: color }} />
+      {text}
+    </span>
+  );
 }

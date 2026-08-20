@@ -6,6 +6,13 @@
  * притягивают связанные, центр удерживает всё вместе. Кластеры проявляются
  * сами, без правил вроде «выстроить по кругу».
  *
+ * НАПРАВЛЕНИЕ ЗАДАЁТ СТОРОНУ. Те, от кого деньги пришли, тянутся влево,
+ * те, кому ушли, — вправо, корень посередине. Обмен в обе стороны идёт
+ * по вертикали: слева и справа он читался бы как односторонний.
+ *
+ * Притяжение мягкое, а не жёсткие колонки: силовая раскладка продолжает
+ * группировать связанные узлы, и картинка остаётся живой.
+ *
  * ГЛАВНАЯ ТОНКОСТЬ — СОХРАНЕНИЕ ПОЗИЦИЙ.
  * При раскрытии узла граф дополняется, и полный пересчёт раскидал бы то,
  * что пользователь уже разглядывает. Поэтому уже размещённые узлы
@@ -21,6 +28,47 @@ import {
   forceX,
   forceY,
 } from 'd3-force';
+
+/**
+ * Насколько далеко разводятся стороны.
+ *
+ * Это ЦЕЛЬ притяжения, а не координата: узел встанет примерно там, но
+ * отталкивание и связи его подвинут. Значение подобрано под длину ребра
+ * (190) — стороны заметно разделены, но граф не растягивается в ленту.
+ */
+const SIDE_SPREAD = 260;
+
+/**
+ * Определить, с какой стороны от корня стоит каждый узел.
+ *
+ * Смотрим только связи С КОРНЕМ: граф строится вокруг него, и «входящий»
+ * означает «деньги пришли корню», а не «пришли кому-то из соседей».
+ *
+ * @param {object[]} nodes
+ * @param {object[]} edges
+ * @param {string} rootId идентификатор корневого узла
+ * @returns {Map<string, 'in'|'out'|'both'|'none'>}
+ */
+export function classifyDirections(nodes, edges, rootId) {
+  const directions = new Map();
+
+  for (const edge of edges) {
+    if (edge.source === rootId && edge.target !== rootId) {
+      // Корень отправитель — значит контрагент получатель, он справа
+      directions.set(edge.target, directions.get(edge.target) === 'in' ? 'both' : 'out');
+    } else if (edge.target === rootId && edge.source !== rootId) {
+      directions.set(edge.source, directions.get(edge.source) === 'out' ? 'both' : 'in');
+    }
+  }
+
+  // Узлы без прямой связи с корнем встречаются после раскрытия: граф
+  // дополняется соседями соседей. Их не тянем никуда
+  for (const node of nodes) {
+    if (!directions.has(node.id)) directions.set(node.id, 'none');
+  }
+
+  return directions;
+}
 
 /** Радиус узла для расчёта столкновений — с запасом на подпись */
 const NODE_RADIUS = 62;
@@ -44,6 +92,7 @@ export function layoutGraph(nodes, edges, pinned = new Map()) {
   if (nodes.length === 0) return new Map();
 
   const centerNode = nodes.find((node) => node.isCenter);
+  const directions = classifyDirections(nodes, edges, centerNode?.id);
 
   // d3-force мутирует переданные объекты, поэтому работаем с копиями:
   // иначе он записал бы координаты и скорости прямо в узлы графа
@@ -88,9 +137,18 @@ export function layoutGraph(nodes, edges, pinned = new Map()) {
     // Запрет наложения кругов с подписями
     .force('collide', forceCollide(NODE_RADIUS).strength(0.9))
     .force('center', forceCenter(0, 0))
-    // Лёгкое притяжение к осям — не даёт одиночным узлам улетать далеко
-    .force('x', forceX(0).strength(0.04))
-    .force('y', forceY(0).strength(0.04))
+    // Стороны: входящие влево, исходящие вправо. Сила больше, чем у
+    // прежнего притяжения к центру, иначе связи перетягивают узлы обратно
+    // и разделение размывается
+    .force('x', forceX((node) => sideTargetX(directions.get(node.id))).strength(0.12))
+    // По вертикали тянем только двусторонние — вверх и вниз попеременно.
+    // Остальные держим слабо, чтобы одиночные не улетали
+    .force(
+      'y',
+      forceY((node) => sideTargetY(directions.get(node.id), node.id)).strength((node) =>
+        directions.get(node.id) === 'both' ? 0.12 : 0.04,
+      ),
+    )
     .stop();
 
   simulation.tick(ITERATIONS);
@@ -104,6 +162,38 @@ export function layoutGraph(nodes, edges, pinned = new Map()) {
   if (!centerNode) return positions;
 
   return positions;
+}
+
+/**
+ * Куда тянуть узел по горизонтали.
+ *
+ * @param {'in'|'out'|'both'|'none'} direction
+ */
+function sideTargetX(direction) {
+  if (direction === 'in') return -SIDE_SPREAD;
+  if (direction === 'out') return SIDE_SPREAD;
+  // Двусторонние и несвязанные — по центру
+  return 0;
+}
+
+/**
+ * Куда тянуть узел по вертикали.
+ *
+ * Двусторонние распределяем вверх и вниз, чтобы они не сбились в кучу над
+ * корнем. Сторона выбирается по хэшу идентификатора, а не по порядку в
+ * массиве: порядок меняется между запросами, и узел прыгал бы сверху вниз
+ * при каждом обновлении.
+ *
+ * @param {'in'|'out'|'both'|'none'} direction
+ * @param {string} id
+ */
+function sideTargetY(direction, id) {
+  if (direction !== 'both') return 0;
+
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+
+  return hash % 2 === 0 ? -SIDE_SPREAD : SIDE_SPREAD;
 }
 
 /**
