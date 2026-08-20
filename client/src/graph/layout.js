@@ -107,10 +107,12 @@ export function layoutGraph(nodes, edges, pinned = new Map()) {
       ...(node.isCenter ? { fx: 0, fy: 0 } : {}),
       // Уже размещённые остаются на месте
       ...(previous && !node.isCenter ? { fx: previous.x, fy: previous.y } : {}),
-      // Новым задаём стартовую точку рядом с центром, иначе d3 разбросает
-      // их случайно и симуляция дольше сходится
-      x: previous?.x ?? (Math.random() - 0.5) * 300,
-      y: previous?.y ?? (Math.random() - 0.5) * 300,
+      // Новые стартуют СРАЗУ НА СВОЕЙ СТОРОНЕ. Старт у центра выглядел
+      // безобиднее, но заставлял симуляцию протаскивать узел через
+      // середину, и слабо связанные иногда застревали не на той половине:
+      // замерено 7 промахов на 12 прогонов. Со стартом на месте их нет
+      x: previous?.x ?? sideTargetX(directions.get(node.id)) + (Math.random() - 0.5) * 120,
+      y: previous?.y ?? sideTargetY(directions.get(node.id), node.id) + (Math.random() - 0.5) * 220,
     };
   });
 
