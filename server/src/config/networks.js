@@ -65,6 +65,95 @@ export const NETWORKS = {
     },
   },
 
+  /*
+   * EVM-СЕТИ.
+   *
+   * Все три обслуживаются ОДНИМ провайдером (providers/evmEtherscan.js):
+   * у Etherscan V2 общий эндпоинт и общий ключ, сеть задаётся chainId.
+   * Поэтому добавить четвёртую — это дописать блок ниже, и всё.
+   *
+   * ПОЧЕМУ ЗДЕСЬ НЕТ BSC, Base, Optimism и Avalanche. Они закрыты на
+   * бесплатном тарифе Etherscan: "Free API access is not supported for
+   * this chain". Проверено живыми запросами, подробности в README.
+   */
+
+  polygon: {
+    key: 'polygon',
+    name: 'Polygon',
+    family: 'evm',
+    chainId: 137,
+
+    nativeSymbol: 'POL',
+    nativeDecimals: 18,
+
+    // hex, регистр не значим. Каноническая форма — СТРОЧНАЯ,
+    // см. services/normalize/evmAddress.js
+    addressFormat: 'hex-lowercase',
+
+    // Блок раз в ~2 секунды. Отступ при инкрементальной догрузке считается
+    // в блоках: reorgBufferSec / blockTimeSec
+    blockTimeSec: 2,
+    reorgBufferSec: 300,
+
+    explorer: {
+      base: 'https://polygonscan.com',
+      tx: (hash) => `https://polygonscan.com/tx/${hash}`,
+      address: (address) => `https://polygonscan.com/address/${address}`,
+    },
+
+    api: {
+      // Домен один на все EVM-сети, различает их chainid в параметрах
+      etherscan: 'https://api.etherscan.io/v2/api',
+    },
+  },
+
+  ethereum: {
+    key: 'ethereum',
+    name: 'Ethereum',
+    family: 'evm',
+    chainId: 1,
+
+    nativeSymbol: 'ETH',
+    nativeDecimals: 18,
+    addressFormat: 'hex-lowercase',
+
+    blockTimeSec: 12,
+    reorgBufferSec: 180,
+
+    explorer: {
+      base: 'https://etherscan.io',
+      tx: (hash) => `https://etherscan.io/tx/${hash}`,
+      address: (address) => `https://etherscan.io/address/${address}`,
+    },
+
+    api: { etherscan: 'https://api.etherscan.io/v2/api' },
+  },
+
+  arbitrum: {
+    key: 'arbitrum',
+    name: 'Arbitrum One',
+    family: 'evm',
+    chainId: 42161,
+
+    // Нативная валюта L2 — тот же ETH
+    nativeSymbol: 'ETH',
+    nativeDecimals: 18,
+    addressFormat: 'hex-lowercase',
+
+    // Блоки идут гораздо чаще секунды, но округление вверх нам на руку:
+    // лишний запас на реорганизацию дешевле пропущенной транзакции
+    blockTimeSec: 1,
+    reorgBufferSec: 60,
+
+    explorer: {
+      base: 'https://arbiscan.io',
+      tx: (hash) => `https://arbiscan.io/tx/${hash}`,
+      address: (address) => `https://arbiscan.io/address/${address}`,
+    },
+
+    api: { etherscan: 'https://api.etherscan.io/v2/api' },
+  },
+
   // Как добавить сеть — на примере Ethereum:
   //
   // 'eth-mainnet': {

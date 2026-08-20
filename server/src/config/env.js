@@ -123,6 +123,16 @@ export const config = {
     // просто с низким лимитом. Разработку это не блокирует.
     tronGridKey: str('TRONGRID_API_KEY', ''),
     tronScanKey: str('TRONSCAN_API_KEY', ''),
+
+    /**
+     * Ключ Etherscan V2 — один на все EVM-сети.
+     *
+     * В ОТЛИЧИЕ от ключей Tron этот обязателен: V2 без него не отвечает
+     * вовсе. Но required() здесь не ставим — иначе сервер не поднимется
+     * у того, кто работает только с Tron. Провайдер проверяет ключ сам
+     * и объясняет, где его взять.
+     */
+    etherscanKey: str('ETHERSCAN_API_KEY', ''),
   },
 
   app: {
