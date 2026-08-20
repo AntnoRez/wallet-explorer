@@ -50,46 +50,51 @@ function scopeGraph(graph, centerAddress) {
 }
 
 /**
- * Слить новый граф с уже накопленным.
+ * Собрать видимый граф из накопленного.
  *
- * Правила:
- *   - узлы объединяются по id; уже раскрытый узел не «схлопывается»
- *     обратно в нераскрытый, если новый граф о нём меньше знает;
- *   - рёбра объединяются по id, новые данные побеждают — они свежее;
- *   - позиции сохраняются: пересчёт раскладки не должен раскидывать то,
- *     что пользователь уже разглядывает.
+ * Показываем ровно три вещи:
+ *   - закреплённые узлы (скелет расследования),
+ *   - текущий узел,
+ *   - его соседей (рабочая область).
+ *
+ * Рёбра берём все, у которых ОБА конца попали в это множество. Отсюда
+ * приятное следствие: связь между двумя закреплёнными узлами проявляется
+ * сама, как только оба оказались на экране, — даже если мы узнали о них
+ * в разное время и из разных запросов.
+ *
+ * @param {{nodes: Map, edges: Map}} cache всё, что видели
+ * @param {Set<string>} pinned закреплённые адреса
+ * @param {string|null} focus текущий узел
+ * @param {Set<string>} neighbors соседи текущего узла
  */
-function mergeGraph(previous, incoming) {
-  const nodes = new Map(previous.nodes.map((node) => [node.id, node]));
+function buildVisible(cache, pinned, focus, neighbors) {
+  const visible = new Set([...pinned, ...neighbors]);
+  if (focus) visible.add(focus);
 
-  for (const node of incoming.nodes) {
-    const existing = nodes.get(node.id);
-
-    if (!existing) {
-      nodes.set(node.id, node);
-      continue;
-    }
-
-    nodes.set(node.id, {
-      ...existing,
-      ...node,
-      // Раскрытость и метка — накопительные признаки: если мы когда-то
-      // узнали их, новый граф не должен их отменять
-      isExpanded: existing.isExpanded || node.isExpanded,
-      label: node.label ?? existing.label,
-      isCenter: existing.isCenter || node.isCenter,
-      // Позиция считается раскладкой отдельно и здесь не трогается
-      position: existing.position,
-    });
+  const nodes = [];
+  for (const id of visible) {
+    const node = cache.nodes.get(id);
+    if (node) nodes.push({ ...node, isCenter: id === focus, isPinned: pinned.has(id) });
   }
 
-  const edges = new Map(previous.edges.map((edge) => [edge.id, edge]));
-  for (const edge of incoming.edges) edges.set(edge.id, edge);
+  const edges = [];
+  for (const edge of cache.edges.values()) {
+    if (visible.has(edge.source) && visible.has(edge.target)) edges.push(edge);
+  }
 
-  return { nodes: [...nodes.values()], edges: [...edges.values()] };
+  return { nodes, edges };
 }
 
 const EMPTY_GRAPH = { nodes: [], edges: [] };
+
+/**
+ * Сколько контрагентов показываем при раскрытии узла.
+ *
+ * Меньше, чем у начального адреса: там важна полнота картины, здесь —
+ * возможность идти дальше, не теряя цепочку из виду. Свёрнутые никуда
+ * не деваются, их видно узлом «+N».
+ */
+const NEIGHBOURS_PER_STEP = 10;
 
 const DEFAULT_FILTERS = {
   days: 30,
@@ -106,6 +111,42 @@ export const useGraphStore = create((set, get) => ({
 
   /** Справочник сетей с сервера: ключи, символы, шаблоны ссылок */
   networks: [],
+
+  /**
+   * Закреплённые адреса — скелет расследования.
+   *
+   * Они остаются на графе, куда бы ты ни ушёл дальше. Цепочка растёт
+   * именно из них: раскрыл узел, закрепил интересный, шагнул дальше.
+   */
+  pinned: new Set(),
+
+  /**
+   * Адрес, с которого началось расследование.
+   *
+   * От него считаются шаги в раскладке: он слева, дальше по цепочке —
+   * правее. Меняется только при вводе адреса руками; переходы по узлам
+   * его не сбивают, иначе цепочка каждый раз начиналась бы заново.
+   */
+  chainStart: null,
+
+  /**
+   * Всё, что мы когда-либо видели: узлы и рёбра по идентификаторам.
+   *
+   * Показываем не всё — иначе через три шага получим кашу, ради которой
+   * и затевалось закрепление. Но помним всё: благодаря этому ребро между
+   * двумя закреплёнными узлами появляется само, как только оба на экране,
+   * даже если увидели мы их в разное время.
+   */
+  cache: { nodes: new Map(), edges: new Map() },
+
+  /**
+   * Соседи текущего узла — рабочая область.
+   *
+   * Единственное, что исчезает при переходе. Постоянное на графе — только
+   * закреплённое, и это делает картинку предсказуемой: сколько бы шагов
+   * ты ни сделал, лишнего на экране ровно один слой.
+   */
+  focusNeighbors: new Set(),
 
   /** Адрес в центре графа */
   rootAddress: null,
@@ -192,17 +233,77 @@ export const useGraphStore = create((set, get) => ({
     }
   },
 
+  /**
+   * Закрепить или открепить узел.
+   *
+   * Закреплённый остаётся на графе при любых переходах — из таких узлов
+   * и складывается цепочка расследования. Открепление убирает его сразу,
+   * если он не сосед текущего узла.
+   *
+   * @param {string} address
+   */
+  togglePin: (address) => {
+    if (!address) return;
+
+    set((state) => {
+      const pinned = new Set(state.pinned);
+      if (pinned.has(address)) pinned.delete(address);
+      else pinned.add(address);
+
+      return {
+        pinned,
+        graph: buildVisible(state.cache, pinned, state.rootAddress, state.focusNeighbors),
+      };
+    });
+  },
+
+  /** Снять все закрепления, оставив только текущий узел с соседями */
+  clearPins: () => {
+    set((state) => ({
+      pinned: new Set(),
+
+  /**
+   * Адрес, с которого началось расследование.
+   *
+   * От него считаются шаги в раскладке: он слева, дальше по цепочке —
+   * правее. Меняется только при вводе адреса руками; переходы по узлам
+   * его не сбивают, иначе цепочка каждый раз начиналась бы заново.
+   */
+  chainStart: null,
+      graph: buildVisible(state.cache, new Set(), state.rootAddress, state.focusNeighbors),
+    }));
+  },
+
   /** Сменить сеть и перестроить граф для того же адреса */
   setNetwork: (key) => {
     if (get().network === key) return;
 
-    set({ network: key, graph: EMPTY_GRAPH, selection: null });
+    // Кэш и закрепления чистим: узлы другой сети к этой не относятся,
+    // а адрес 0x… существует во всех EVM-сетях сразу — оставь мы их,
+    // на графе смешались бы истории из разных цепей
+    set({
+      network: key,
+      graph: EMPTY_GRAPH,
+      selection: null,
+      pinned: new Set(),
+
+  /**
+   * Адрес, с которого началось расследование.
+   *
+   * От него считаются шаги в раскладке: он слева, дальше по цепочке —
+   * правее. Меняется только при вводе адреса руками; переходы по узлам
+   * его не сбивают, иначе цепочка каждый раз начиналась бы заново.
+   */
+  chainStart: null,
+      cache: { nodes: new Map(), edges: new Map() },
+      focusNeighbors: new Set(),
+    });
 
     const { rootAddress, load } = get();
     if (rootAddress) load(rootAddress);
   },
 
-  load: async (address, { reset = true, refresh = false, loadMore = false } = {}) => {
+  load: async (address, { reset = true, refresh = false, loadMore = false, newChain = false } = {}) => {
     const { filters, networks } = get();
 
     // Сеть определяется видом адреса: T... — Tron, 0x... — EVM. Если
@@ -212,26 +313,73 @@ export const useGraphStore = create((set, get) => ({
     const network = pickNetwork(address, get().network, networks) ?? get().network;
     if (network !== get().network) set({ network });
 
-    set({
+    // Ручной ввод адреса начинает расследование заново: прежняя цепочка
+    // к новому адресу отношения не имеет
+    if (newChain) {
+      set({
+        chainStart: address,
+        // Начало цепочки закрепляем сразу: от него считаются шаги в
+        // раскладке, и уйди оно с экрана — считать было бы не от чего.
+        // Да и по смыслу точка отсчёта расследования должна быть видна
+        pinned: new Set([address]),
+        cache: { nodes: new Map(), edges: new Map() },
+        focusNeighbors: new Set(),
+        history: [],
+      });
+    }
+
+    set((state) => ({
       status: 'loading',
       error: null,
-      ...(reset ? { rootAddress: address, graph: EMPTY_GRAPH, selection: null } : {}),
-    });
+      // Первый адрес в сессии тоже начинает цепочку
+      chainStart: state.chainStart ?? address,
+      pinned: state.chainStart ? state.pinned : new Set([address]),
+      ...(reset ? { rootAddress: address, selection: null } : {}),
+    }));
 
     try {
       const wallet = await fetchWallet(network, address, {
         ...filters,
+        // При раскрытии берём меньше контрагентов, чем для начального
+        // адреса: соседи накапливаются с каждым шагом, и полная двадцатка
+        // на каждом узле быстро превращает цепочку в кашу
+        topNodes: newChain ? filters.topNodes : NEIGHBOURS_PER_STEP,
         refresh,
         loadMore,
       });
 
       const incoming = scopeGraph(wallet.graph, address);
 
-      set((state) => ({
-        wallet,
-        graph: reset ? incoming : mergeGraph(state.graph, incoming),
-        status: 'ready',
-      }));
+      set((state) => {
+        // Копим ВСЁ увиденное: показываем подмножество, но помним целиком
+        const cache = {
+          nodes: new Map(state.cache.nodes),
+          edges: new Map(state.cache.edges),
+        };
+
+        for (const node of incoming.nodes) {
+          const known = cache.nodes.get(node.id);
+          // Накопительные признаки не отменяем: раскрытость и метка,
+          // однажды узнанные, не должны теряться из-за более бедного ответа
+          cache.nodes.set(node.id, known ? { ...known, ...node, label: node.label ?? known.label } : node);
+        }
+        for (const edge of incoming.edges) cache.edges.set(edge.id, edge);
+
+        // Соседи текущего узла — всё, что пришло в этом ответе, кроме
+        // его самого. Прошлые соседи при переходе исчезают: на экране
+        // всегда ровно один рабочий слой плюс закреплённое
+        const neighbors = new Set(
+          incoming.nodes.map((node) => node.id).filter((id) => id !== address),
+        );
+
+        return {
+          wallet,
+          cache,
+          focusNeighbors: neighbors,
+          graph: buildVisible(cache, state.pinned, address, neighbors),
+          status: 'ready',
+        };
+      });
 
       // Метки — отдельным запросом, граф уже показан
       get().loadLabels();
@@ -372,6 +520,18 @@ export const useGraphStore = create((set, get) => ({
       rootAddress: null,
       history: [],
       graph: EMPTY_GRAPH,
+      pinned: new Set(),
+
+  /**
+   * Адрес, с которого началось расследование.
+   *
+   * От него считаются шаги в раскладке: он слева, дальше по цепочке —
+   * правее. Меняется только при вводе адреса руками; переходы по узлам
+   * его не сбивают, иначе цепочка каждый раз начиналась бы заново.
+   */
+  chainStart: null,
+      cache: { nodes: new Map(), edges: new Map() },
+      focusNeighbors: new Set(),
       wallet: null,
       labels: {},
       selection: null,

@@ -264,6 +264,8 @@ function NodeDetails({ node }) {
   const rootAddress = useGraphStore((state) => state.rootAddress);
   const currentNetwork = useCurrentNetwork();
   const wallet = useGraphStore((state) => state.wallet);
+  const togglePin = useGraphStore((state) => state.togglePin);
+  const isPinned = useGraphStore((state) => state.pinned.has(node.address));
 
   if (node.isGroup) {
     return (
@@ -326,15 +328,38 @@ function NodeDetails({ node }) {
               Перейти к адресу
             </button>
           )}
-          <a
-            href={explorer}
-            target="_blank"
-            rel="noreferrer"
-            className="flex-1 rounded-md border border-line bg-surface-2 px-3 py-2 text-center text-xs text-ink"
+          {/*
+            Закрепление — основа расследования: закреплённый узел остаётся
+            на графе, куда бы ты ни ушёл дальше. Без него переход к соседу
+            стирал бы всё, что ты уже нашёл
+          */}
+          <button
+            onClick={() => togglePin(node.address)}
+            title={
+              isPinned
+                ? 'Убрать с графа при следующем переходе'
+                : 'Оставить на графе при переходах к другим адресам'
+            }
+            className={[
+              'flex-1 rounded-md border px-3 py-2 text-xs transition-colors',
+              isPinned
+                ? 'border-pin/50 bg-pin/10 text-pin'
+                : 'border-line bg-surface-2 text-ink hover:border-pin/40',
+            ].join(' ')}
           >
-            Tronscan
-          </a>
+            {isPinned ? '★ Закреплён' : '☆ Закрепить'}
+          </button>
         </div>
+
+        <a
+          href={explorer}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 block rounded-md border border-line bg-surface-2 px-3 py-2 text-center text-xs text-ink"
+        >
+          Открыть в обозревателе
+        </a>
+
         {isRoot && wallet && (
           <div className="mt-2 text-[11px] text-muted">Это текущий центр графа</div>
         )}

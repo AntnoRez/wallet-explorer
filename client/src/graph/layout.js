@@ -6,9 +6,14 @@
  * притягивают связанные, центр удерживает всё вместе. Кластеры проявляются
  * сами, без правил вроде «выстроить по кругу».
  *
- * НАПРАВЛЕНИЕ ЗАДАЁТ СТОРОНУ. Те, от кого деньги пришли, тянутся влево,
- * те, кому ушли, — вправо, корень посередине. Обмен в обе стороны идёт
- * по вертикали: слева и справа он читался бы как односторонний.
+ * ГОРИЗОНТАЛЬ — ЭТО ШАГИ РАССЛЕДОВАНИЯ. Начальный адрес слева, его
+ * соседи правее, соседи соседей ещё правее. Цепочка читается слева
+ * направо, и видно, сколько шагов сделано и где была развилка.
+ *
+ * Пока цепочки нет (открыт один адрес), шаг у всех одинаковый — и тогда
+ * стороны задаёт направление перевода: прислали слева, отправили справа,
+ * обмен по вертикали. Так первый экран остаётся наглядным, а при переходе
+ * к расследованию раскладка перестраивается сама.
  *
  * Притяжение мягкое, а не жёсткие колонки: силовая раскладка продолжает
  * группировать связанные узлы, и картинка остаётся живой.
@@ -37,6 +42,64 @@ import {
  * (190) — стороны заметно разделены, но граф не растягивается в ленту.
  */
 const SIDE_SPREAD = 260;
+
+/**
+ * Расстояние между шагами цепочки по горизонтали.
+ *
+ * Больше длины ребра (190): слои должны читаться как отдельные колонки,
+ * иначе соседние шаги перемешиваются и смысл раскладки теряется.
+ */
+const STEP_SPACING = 320;
+
+/**
+ * Расстояние в шагах от начала цепочки.
+ *
+ * Обход в ширину по рёбрам без учёта направления: нас интересует, за
+ * сколько переходов узел достижим, а не куда шли деньги. Направление
+ * показывают цвет и стрелка ребра.
+ *
+ * @param {object[]} nodes
+ * @param {object[]} edges
+ * @param {string} startId с какого узла начали
+ * @returns {Map<string, number>} узел -> номер шага
+ */
+export function computeSteps(nodes, edges, startId) {
+  const steps = new Map();
+  if (!startId) return steps;
+
+  const neighbours = new Map();
+  for (const edge of edges) {
+    if (!neighbours.has(edge.source)) neighbours.set(edge.source, []);
+    if (!neighbours.has(edge.target)) neighbours.set(edge.target, []);
+    neighbours.get(edge.source).push(edge.target);
+    neighbours.get(edge.target).push(edge.source);
+  }
+
+  steps.set(startId, 0);
+  let frontier = [startId];
+
+  while (frontier.length > 0) {
+    const next = [];
+
+    for (const id of frontier) {
+      for (const neighbour of neighbours.get(id) ?? []) {
+        if (steps.has(neighbour)) continue;
+        steps.set(neighbour, steps.get(id) + 1);
+        next.push(neighbour);
+      }
+    }
+
+    frontier = next;
+  }
+
+  // Узлы, до которых не дотянулись рёбра, ставим на шаг начала:
+  // иначе они улетели бы в нулевую координату поверх старта
+  for (const node of nodes) {
+    if (!steps.has(node.id)) steps.set(node.id, 0);
+  }
+
+  return steps;
+}
 
 /**
  * Определить, с какой стороны от корня стоит каждый узел.
@@ -88,11 +151,31 @@ const ITERATIONS = 260;
  * @param {Map<string, {x: number, y: number}>} [pinned] уже размещённые узлы
  * @returns {Map<string, {x: number, y: number}>} координаты по id
  */
-export function layoutGraph(nodes, edges, pinned = new Map()) {
+export function layoutGraph(nodes, edges, pinned = new Map(), chainStart = null) {
   if (nodes.length === 0) return new Map();
 
   const centerNode = nodes.find((node) => node.isCenter);
   const directions = classifyDirections(nodes, edges, centerNode?.id);
+
+  // Шаги считаем от начала расследования, а не от текущего узла: цепочка
+  // должна расти в одну сторону, а не переворачиваться при каждом переходе
+  const startId = chainStart ?? centerNode?.id;
+  const steps = computeSteps(nodes, edges, startId);
+  const depth = Math.max(0, ...steps.values());
+
+  // Цепочки ещё нет — раскладываем по направлению перевода. Она появилась —
+  // горизонталь отдаём шагам, иначе два смысла боролись бы за одну ось
+  const byChain = depth > 1;
+
+  /** Куда тянуть узел по горизонтали */
+  const targetX = (id) =>
+    byChain
+      ? (steps.get(id) ?? 0) * STEP_SPACING - (depth * STEP_SPACING) / 2
+      : sideTargetX(directions.get(id));
+
+  /** Куда тянуть узел по вертикали */
+  const targetY = (id) =>
+    byChain ? chainTargetY(id) : sideTargetY(directions.get(id), id);
 
   // d3-force мутирует переданные объекты, поэтому работаем с копиями:
   // иначе он записал бы координаты и скорости прямо в узлы графа
@@ -111,8 +194,8 @@ export function layoutGraph(nodes, edges, pinned = new Map()) {
       // безобиднее, но заставлял симуляцию протаскивать узел через
       // середину, и слабо связанные иногда застревали не на той половине:
       // замерено 7 промахов на 12 прогонов. Со стартом на месте их нет
-      x: previous?.x ?? sideTargetX(directions.get(node.id)) + (Math.random() - 0.5) * 120,
-      y: previous?.y ?? sideTargetY(directions.get(node.id), node.id) + (Math.random() - 0.5) * 220,
+      x: previous?.x ?? targetX(node.id) + (Math.random() - 0.5) * 120,
+      y: previous?.y ?? targetY(node.id) + (Math.random() - 0.5) * 260,
     };
   });
 
@@ -138,17 +221,19 @@ export function layoutGraph(nodes, edges, pinned = new Map()) {
     .force('charge', forceManyBody().strength(-900).distanceMax(900))
     // Запрет наложения кругов с подписями
     .force('collide', forceCollide(NODE_RADIUS).strength(0.9))
-    .force('center', forceCenter(0, 0))
+    // В режиме цепочки центрирования нет: оно стягивало бы слои обратно
+    // в кучу, борясь с разведением по шагам
+    .force('center', byChain ? null : forceCenter(0, 0))
     // Стороны: входящие влево, исходящие вправо. Сила больше, чем у
     // прежнего притяжения к центру, иначе связи перетягивают узлы обратно
     // и разделение размывается
-    .force('x', forceX((node) => sideTargetX(directions.get(node.id))).strength(0.12))
+    .force('x', forceX((node) => targetX(node.id)).strength(byChain ? 0.35 : 0.12))
     // По вертикали тянем только двусторонние — вверх и вниз попеременно.
     // Остальные держим слабо, чтобы одиночные не улетали
     .force(
       'y',
-      forceY((node) => sideTargetY(directions.get(node.id), node.id)).strength((node) =>
-        directions.get(node.id) === 'both' ? 0.12 : 0.04,
+      forceY((node) => targetY(node.id)).strength((node) =>
+        !byChain && directions.get(node.id) === 'both' ? 0.12 : 0.04,
       ),
     )
     .stop();
@@ -164,6 +249,24 @@ export function layoutGraph(nodes, edges, pinned = new Map()) {
   if (!centerNode) return positions;
 
   return positions;
+}
+
+/**
+ * Разброс по вертикали внутри одного шага цепочки.
+ *
+ * Ставим по хэшу адреса, а не по порядку: порядок меняется между
+ * запросами, и узел прыгал бы вверх-вниз при каждом обновлении.
+ * Симуляция потом разведёт их отталкиванием, наша задача — не свалить
+ * весь слой в одну точку.
+ *
+ * @param {string} id
+ */
+function chainTargetY(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+
+  // Диапазон примерно в высоту экрана: дальше уводить незачем
+  return ((hash % 9) - 4) * 90;
 }
 
 /**

@@ -52,6 +52,7 @@ export default function AddressNode({ data, selected }) {
     groupSize,
     weight = 0,
     isLoading,
+    isPinned,
   } = data;
 
   const size = nodeDiameter({ isCenter, weight });
@@ -68,7 +69,9 @@ export default function AddressNode({ data, selected }) {
       ? 'border-accent'
       : isGroup
         ? 'border-group'
-        : 'border-line';
+        : isPinned
+          ? 'border-pin'
+          : 'border-line';
 
   const fill = isCenter
     ? 'bg-accent/15'
@@ -79,7 +82,7 @@ export default function AddressNode({ data, selected }) {
         : 'bg-surface-2';
 
   return (
-    <div className="flex flex-col items-center" style={{ width: MAX_SIZE + 60 }}>
+    <div className="relative flex flex-col items-center" style={{ width: MAX_SIZE + 60 }}>
       {/*
         Точки соединения рёбер. Скрыты: пользователь ничего не соединяет
         руками, но React Flow без них не знает, куда вести линии.
@@ -87,6 +90,21 @@ export default function AddressNode({ data, selected }) {
       */}
       <Handle type="target" position={Position.Left} className="!opacity-0" />
       <Handle type="source" position={Position.Right} className="!opacity-0" />
+
+      {/*
+        Закреплённый узел помечен явно: он остаётся на графе при переходах,
+        и это надо видеть, не открывая панель. Одной рамки мало — цвет
+        рамки уже занят под центр, эвристику и сводный узел
+      */}
+      {isPinned && !isCenter && (
+        <span
+          className="absolute z-10 rounded-full bg-pin px-1 text-[9px] leading-[14px] text-base"
+          style={{ transform: `translate(${size / 2 - 4}px, -4px)` }}
+          title="Закреплён: останется на графе при переходах"
+        >
+          ★
+        </span>
+      )}
 
       <div
         className={[

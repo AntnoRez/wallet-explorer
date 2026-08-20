@@ -47,6 +47,7 @@ export default function TransactionGraph() {
   const clearSelection = useGraphStore((state) => state.clearSelection);
   const expandNode = useGraphStore((state) => state.expandNode);
   const expandGroup = useGraphStore((state) => state.expandGroup);
+  const chainStart = useGraphStore((state) => state.chainStart);
 
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState([]);
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState([]);
@@ -101,7 +102,7 @@ export default function TransactionGraph() {
       return;
     }
 
-    const positions = layoutGraph(graph.nodes, graph.edges, positionsRef.current);
+    const positions = layoutGraph(graph.nodes, graph.edges, positionsRef.current, chainStart);
     positionsRef.current = positions;
 
     const labelsById = new Map(nodesWithLabels.map((node) => [node.id, node]));
@@ -121,6 +122,7 @@ export default function TransactionGraph() {
             weight,
             // Точный диаметр круга — рёбра обрезаются по нему
             diameter: nodeDiameter({ isCenter: node.isCenter, weight }),
+            isPinned: node.isPinned ?? false,
             isLoading: node.address ? expanding.has(node.address) : false,
           },
         };
@@ -194,6 +196,7 @@ export default function TransactionGraph() {
     graph,
     nodesWithLabels,
     rootAddress,
+    chainStart,
     expanding,
     selection,
     pairSummary,

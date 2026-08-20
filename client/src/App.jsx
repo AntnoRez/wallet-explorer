@@ -28,6 +28,8 @@ export default function App() {
   const network = useGraphStore((state) => state.network);
   const setNetwork = useGraphStore((state) => state.setNetwork);
   const loadNetworks = useGraphStore((state) => state.loadNetworks);
+  const pinnedCount = useGraphStore((state) => state.pinned.size);
+  const clearPins = useGraphStore((state) => state.clearPins);
 
   useEffect(() => {
     // Справочник сетей нужен до первого запроса: по нему выбирается сеть
@@ -43,7 +45,9 @@ export default function App() {
 
   const submit = () => {
     const address = input.trim();
-    if (address) load(address);
+    // newChain: введённый руками адрес начинает расследование заново —
+    // прежняя цепочка к нему отношения не имеет
+    if (address) load(address, { newChain: true });
   };
 
   const stats = wallet?.graph?.stats;
@@ -96,6 +100,17 @@ export default function App() {
         </div>
 
         <div className="min-w-0 flex-1 truncate text-xs text-muted">
+          {pinnedCount > 0 && (
+            <button
+              onClick={clearPins}
+              title="Снять все закрепления"
+              className="mr-3 rounded border border-pin/40 bg-pin/10 px-1.5 py-0.5 text-pin hover:border-pin"
+            >
+              ★ {pinnedCount}{' '}
+              {plural(pinnedCount, ['закреплён', 'закреплено', 'закреплено'])} ✕
+            </button>
+          )}
+
           {history.length > 0 && (
             <span className="mr-3 text-muted/70">
               путь: {history.length + 1}{' '}
