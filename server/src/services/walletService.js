@@ -20,7 +20,12 @@ import { Op } from 'sequelize';
 import { sequelize, Address, Transaction } from '../models/index.js';
 import { config } from '../config/env.js';
 import { getNetwork } from '../config/networks.js';
-import { fetchAddressActivity, fetchBalance, collectAddresses } from './chainData.js';
+import {
+  fetchAddressActivity,
+  fetchBalance,
+  fetchTokenBalances,
+  collectAddresses,
+} from './chainData.js';
 import { detectStructuring } from './heuristics.js';
 
 /**
@@ -483,6 +488,46 @@ const BALANCE_TTL_MS = 60_000;
 const BALANCE_CACHE_LIMIT = 500;
 
 /**
+ * Сколько контрактов спрашиваем поимённо.
+ *
+ * Каждый — отдельный запрос, идущий последовательно. Двадцать самых
+ * активных токенов покрывают осмысленную часть баланса; хвост из
+ * одноразовых спам-рассылок всё равно был бы отброшен при показе.
+ */
+const TOKEN_BALANCE_LIMIT = 20;
+
+/**
+ * Контракты токенов, которыми адрес реально пользовался.
+ *
+ * Берём из наших же сохранённых переводов и сортируем по числу
+ * упоминаний: у настоящего токена переводов десятки, у спама — один,
+ * тот самый, которым его и прислали.
+ *
+ * @param {string} networkKey
+ * @param {string} address
+ * @returns {Promise<string[]>}
+ */
+async function knownTokenContracts(networkKey, address) {
+  const rows = await Transaction.findAll({
+    where: {
+      network: networkKey,
+      tokenContractAddress: { [Op.ne]: null },
+      [Op.or]: [{ fromAddress: address }, { toAddress: address }],
+    },
+    attributes: [
+      'tokenContractAddress',
+      [sequelize.fn('COUNT', sequelize.col('hash')), 'transferCount'],
+    ],
+    group: ['tokenContractAddress'],
+    order: [[sequelize.literal('"transferCount"'), 'DESC']],
+    limit: TOKEN_BALANCE_LIMIT,
+    raw: true,
+  });
+
+  return rows.map((row) => row.tokenContractAddress);
+}
+
+/**
  * Баланс адреса. Отдельный запрос к API, из переводов не выводится:
  * мимо списка транзакций проходят комиссии, заморозка под ресурсы и награды.
  *
@@ -499,7 +544,15 @@ export async function getBalance(networkKey, address, { force = false } = {}) {
   }
 
   const raw = await fetchBalance(networkKey, address);
-  const value = { ...raw, tokens: await describeTokens(networkKey, raw.tokens) };
+
+  // У EVM-сетей список токенов на балансе платный, поэтому провайдер
+  // отдаёт только нативную монету. Контракты берём из уже сохранённых
+  // переводов адреса и спрашиваем балансы поимённо
+  const tokens = raw.tokens.length > 0
+    ? raw.tokens
+    : await fetchTokenBalances(networkKey, address, await knownTokenContracts(networkKey, address));
+
+  const value = { ...raw, tokens: await describeTokens(networkKey, tokens) };
 
   if (balanceCache.size >= BALANCE_CACHE_LIMIT) {
     // Map перебирает ключи в порядке вставки — первый и есть самый старый

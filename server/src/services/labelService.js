@@ -246,6 +246,19 @@ export async function getLabels(networkKey, addresses, { force = false } = {}) {
   // ушёл бы в никуда, и на каждый узел графа тратилась бы пауза
   // троттлинга — 350 мс на адрес впустую. Возвращаем то, что в базе
   if (!network.api?.tronScan) {
+    // Заполняем тем, что есть в базе. Через этот же ответ уходит результат
+    // НАШЕЙ эвристики — isSuspicious и suspicionReason, — поэтому просто
+    // пропустить адреса нельзя: пропала бы подсветка подозрительных узлов
+    for (const address of batch) {
+      const row = byAddress.get(address);
+      labels[address] = {
+        label: row?.label ?? null,
+        tags: row?.tags ?? null,
+        isSuspicious: row?.isSuspicious ?? false,
+        suspicionReason: row?.suspicionReason ?? null,
+      };
+    }
+
     return {
       labels,
       stats: {
