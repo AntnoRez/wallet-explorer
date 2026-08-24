@@ -70,7 +70,7 @@ export default function App() {
           onKeyDown={(event) => event.key === 'Enter' && submit()}
           spellCheck={false}
           className="w-[400px] rounded-md border border-line bg-surface-2 px-3 py-2 font-mono text-sm text-ink outline-none transition-colors focus:border-accent"
-          placeholder="Адрес кошелька — T… для Tron, 0x… для EVM-сетей"
+          placeholder="Адрес кошелька: T… Tron, 0x… EVM, base58 — Solana"
         />
 
         <button
