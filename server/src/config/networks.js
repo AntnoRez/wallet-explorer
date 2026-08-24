@@ -154,6 +154,46 @@ export const NETWORKS = {
     api: { etherscan: 'https://api.etherscan.io/v2/api' },
   },
 
+  /*
+   * SOLANA — отдельное семейство, не EVM и не Tron.
+   *
+   * Обслуживается providers/solanaHelius.js. Обычный RPC не используем:
+   * замерено, что через него в кошельки удаётся связать только 75%
+   * переводов, а Enhanced API Helius даёт 100%.
+   */
+  solana: {
+    key: 'solana',
+    name: 'Solana',
+    family: 'solana',
+    // chainId в её мире не существует — сеть задаётся эндпоинтом
+    chainId: null,
+
+    nativeSymbol: 'SOL',
+    // Единица — lamport, 10^-9 SOL
+    nativeDecimals: 9,
+
+    // base58 без контрольной суммы. Регистр ЗНАЧИМ, как в Tron;
+    // защиты от опечатки нет никакой — см. normalize/solanaAddress.js
+    addressFormat: 'base58-raw',
+
+    // Слоты идут примерно раз в 400 мс, но пагинация здесь курсорная,
+    // по подписи, поэтому в блоках ничего не считаем. Значение оставлено
+    // ради единообразия справочника
+    blockTimeSec: 1,
+    reorgBufferSec: 60,
+
+    explorer: {
+      base: 'https://solscan.io',
+      tx: (hash) => `https://solscan.io/tx/${hash}`,
+      address: (address) => `https://solscan.io/account/${address}`,
+    },
+
+    api: {
+      enhanced: 'https://api.helius.xyz/v0',
+      rpc: 'https://mainnet.helius-rpc.com',
+    },
+  },
+
   // Как добавить сеть — на примере Ethereum:
   //
   // 'eth-mainnet': {
