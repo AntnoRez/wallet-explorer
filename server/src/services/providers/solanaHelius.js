@@ -17,6 +17,11 @@
  * getMultipleAccounts вернул ноль из девяти). Enhanced API отдаёт
  * fromUserAccount и toUserAccount сразу.
  *
+ * ЕЩЁ ОДНА ОСОБЕННОСТЬ: API отдаёт транзакции, где адрес УПОМЯНУТ, а не
+ * где он двигает средства. Для обычного кошелька разница невелика, для
+ * адреса-пула — полная: у пула PUMP_AMM в ответе 612 переводов и ни
+ * одного с его участием. Поэтому чужое отсеиваем, см. fetchTransfers().
+ *
  * ЛОВУШКА С ТОЧНОСТЬЮ. Сумма перевода приходит ЧИСЛОМ с плавающей точкой:
  *
  *   "tokenAmount": 1608.299142                       <- float, ненадёжно
@@ -469,6 +474,21 @@ export async function fetchTransfers(networkKey, addr, rawSyncState, options = {
     transfers.push(...parseTokenTransfers(tx, network));
   }
 
+  // Оставляем только переводы, где адрес действительно участвует.
+  //
+  // ЗАЧЕМ ЭТО НУЖНО ИМЕННО ЗДЕСЬ. Enhanced API отдаёт транзакции, где
+  // адрес УПОМЯНУТ, а не где он двигает средства. Для обычного кошелька
+  // разницы почти нет, а вот для адреса-пула она полная: замерено на
+  // пуле PUMP_AMM — 612 переводов в ответе, с его участием НИ ОДНОГО,
+  // все между третьими сторонами.
+  //
+  // Остальные провайдеры отдают именно переводы адреса, и код выше
+  // рассчитывает на это: сохранив чужое, мы пометили бы адрес как
+  // загруженный, не загрузив о нём ничего.
+  const mine = transfers.filter(
+    (transfer) => transfer.fromAddress === addr || transfer.toAddress === addr,
+  );
+
   const goingDown = Boolean(options.loadMore);
 
   // Верхняя граница растёт только при движении вверх: догрузка приносит
@@ -487,7 +507,7 @@ export async function fetchTransfers(networkKey, addr, rawSyncState, options = {
   }
 
   return {
-    transfers,
+    transfers: mine,
     syncState: { ...state, lastSignature, pendingBefore },
     hasMore: pendingBefore !== null,
   };
@@ -514,17 +534,31 @@ export async function fetchBalance(networkKey, addr) {
     ]),
   ]);
 
-  const tokens = [];
+  // Складываем ПО ТОКЕНУ, а не по счёту.
+  //
+  // У владельца может быть несколько токен-аккаунтов одного и того же
+  // токена — биржи заводят их десятками. Замерено на кошельке Binance:
+  // USDT встретился 15 раз, USDC 17. Без сложения интерфейс показывал бы
+  // полтора десятка строк «USDT» с разными суммами вместо одной.
+  const byMint = new Map();
 
   for (const account of accounts?.value ?? []) {
     const info = account.account?.data?.parsed?.info ?? {};
     const amount = info.tokenAmount?.amount ?? '0';
 
     // Пустые счета остаются после переводов и только засоряют баланс
-    if (amount === '0') continue;
+    if (amount === '0' || !info.mint) continue;
 
-    tokens.push({ contractAddress: info.mint, balance: String(amount) });
+    // Суммы складываем как BigInt: у токенов с девятью знаками они
+    // выходят за предел точного целого в JavaScript
+    const previous = byMint.get(info.mint) ?? 0n;
+    byMint.set(info.mint, previous + BigInt(amount));
   }
+
+  const tokens = [...byMint.entries()].map(([contractAddress, balance]) => ({
+    contractAddress,
+    balance: balance.toString(),
+  }));
 
   return {
     native: {

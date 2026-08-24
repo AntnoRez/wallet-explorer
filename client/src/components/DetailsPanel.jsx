@@ -168,6 +168,10 @@ function BalanceSection({ balance, nativeDecimals }) {
     .filter((token) => token.transferCount > 0)
     .sort((a, b) => b.transferCount - a.transferCount);
   const spam = tokens.filter((token) => !token.transferCount);
+  // Сервер присылает не весь хвост, а только первые полсотни: у биржевого
+  // адреса в Solana таких токенов почти четыре тысячи. Полное число
+  // приходит отдельным полем, чтобы подпись не врала
+  const spamTotal = balance.hiddenTokenCount ?? spam.length;
 
   return (
     <Section title="Баланс">
@@ -198,8 +202,8 @@ function BalanceSection({ balance, nativeDecimals }) {
             onClick={() => setShowSpam((value) => !value)}
             className="text-[11px] text-muted hover:text-ink"
           >
-            {showSpam ? '▾' : '▸'} ещё {spam.length}{' '}
-            {plural(spam.length, ['токен', 'токена', 'токенов'])} без единого перевода
+            {showSpam ? '▾' : '▸'} ещё {spamTotal}{' '}
+            {plural(spamTotal, ['токен', 'токена', 'токенов'])} без единого перевода
           </button>
 
           {showSpam && (

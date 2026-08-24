@@ -27,7 +27,18 @@ export const Transaction = sequelize.define(
 
     /** Хэш транзакции блокчейна. У нескольких переводов он может совпадать */
     hash: {
-      type: DataTypes.STRING(80),
+      /*
+       * 96 символов — с запасом под самую длинную известную нам форму.
+       * Замерено на живых данных:
+       *
+       *   Tron       64   hex
+       *   EVM        66   hex с префиксом 0x
+       *   Solana     88   подпись, 64 байта в base58
+       *
+       * Восьмидесяти не хватало: Solana не влезала, и сохранение падало
+       * с «value too long for type character varying(80)».
+       */
+      type: DataTypes.STRING(96),
       primaryKey: true,
       allowNull: false,
     },

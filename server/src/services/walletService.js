@@ -488,6 +488,38 @@ const BALANCE_TTL_MS = 60_000;
 const BALANCE_CACHE_LIMIT = 500;
 
 /**
+ * Сколько токенов без единого перевода отдаём наружу.
+ *
+ * Столько же показывает интерфейс, свернув их за кнопку «ещё N токенов»,
+ * — присылать больше бессмысленно.
+ */
+const SPAM_TOKENS_LIMIT = 50;
+
+/**
+ * Отрезать хвост спам-токенов.
+ *
+ * У биржевого адреса в Solana нашлось 3812 токен-аккаунтов, из которых
+ * осмысленных — 37. Полный список весил 615 КБ из 642 КБ всего ответа:
+ * мы гнали по сети полмегабайта мусора, чтобы показать три десятка строк.
+ *
+ * Токены с переводами оставляем ВСЕ: их мало, и именно они интересны.
+ * Остальные обрезаем, но сохраняем общее число — интерфейс честно
+ * покажет, сколько всего висит на балансе.
+ *
+ * @param {object[]} tokens
+ * @returns {{ tokens: object[], hiddenTokenCount: number }}
+ */
+function trimTokens(tokens) {
+  const meaningful = tokens.filter((token) => token.transferCount > 0);
+  const rest = tokens.filter((token) => !token.transferCount);
+
+  return {
+    tokens: [...meaningful, ...rest.slice(0, SPAM_TOKENS_LIMIT)],
+    hiddenTokenCount: rest.length,
+  };
+}
+
+/**
  * Сколько контрактов спрашиваем поимённо.
  *
  * Каждый — отдельный запрос, идущий последовательно. Двадцать самых
@@ -552,7 +584,7 @@ export async function getBalance(networkKey, address, { force = false } = {}) {
     ? raw.tokens
     : await fetchTokenBalances(networkKey, address, await knownTokenContracts(networkKey, address));
 
-  const value = { ...raw, tokens: await describeTokens(networkKey, tokens) };
+  const value = { ...raw, ...trimTokens(await describeTokens(networkKey, tokens)) };
 
   if (balanceCache.size >= BALANCE_CACHE_LIMIT) {
     // Map перебирает ключи в порядке вставки — первый и есть самый старый

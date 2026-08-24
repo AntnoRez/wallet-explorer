@@ -8,16 +8,19 @@
  * в трёх форматах.
  *
  * Провайдер выбирается по полю family из справочника сетей, а НЕ по ключу
- * сети: Ethereum, Polygon и BSC будут обслуживаться одним провайдером
- * (family: 'evm'), различаясь только chainId.
+ * сети: Ethereum, Polygon и Arbitrum обслуживаются одним провайдером
+ * (family: 'evm'), различаясь только chainId. Tron и Solana — свои
+ * семейства со своими провайдерами.
  */
 
 import { getNetwork, listNetworkKeys } from '../config/networks.js';
 import * as tronGrid from './providers/tronGrid.js';
 import * as tronScan from './providers/tronScan.js';
 import * as evmEtherscan from './providers/evmEtherscan.js';
+import * as solanaHelius from './providers/solanaHelius.js';
 import * as tronAddress from './normalize/tronAddress.js';
 import * as evmAddress from './normalize/evmAddress.js';
+import * as solanaAddress from './normalize/solanaAddress.js';
 
 /**
  * Реализации по семействам сетей.
@@ -118,6 +121,27 @@ const FAMILIES = {
     normalizeAddress: (raw) => evmAddress.toCanonical(raw),
     parseUserInput: (raw) => evmAddress.parseUserInput(raw),
     isValidUserInput: (raw) => evmAddress.isValidUserInput(raw),
+  },
+
+  solana: {
+    fetchTransfers: (networkKey, address, syncState, options) =>
+      // Один источник на всё: Enhanced API отдаёт и переводы SOL, и
+      // переводы токенов разом. Ни второго сервиса, как в Tron, ни трёх
+      // отдельных эндпоинтов, как в EVM
+      solanaHelius.fetchTransfers(networkKey, address, syncState, options).then((result) => ({
+        ...result,
+        partial: [],
+      })),
+
+    fetchBalance: (networkKey, address) => solanaHelius.fetchBalance(networkKey, address),
+
+    // Список токенов на балансе приходит вместе с балансом — отдельный
+    // запрос нужен только EVM-сетям, где он платный
+    fetchTokenBalances: null,
+
+    normalizeAddress: (raw) => solanaAddress.toCanonical(raw),
+    parseUserInput: (raw) => solanaAddress.parseUserInput(raw),
+    isValidUserInput: (raw) => solanaAddress.isValidUserInput(raw),
   },
 };
 
@@ -304,8 +328,12 @@ export function isValidUserAddress(networkKey, raw) {
  * @returns {'tron'|'evm'|null} null — не похоже ни на что
  */
 export function detectAddressFamily(raw) {
+  // Порядок важен только для читаемости: форматы не пересекаются.
+  // Tron и Solana оба в base58, но декодируются в разное число байт —
+  // 25 против 32, так что перепутать их нельзя
   if (tronAddress.isValidUserInput(raw)) return 'tron';
   if (evmAddress.isValidUserInput(raw)) return 'evm';
+  if (solanaAddress.isValidUserInput(raw)) return 'solana';
   return null;
 }
 
