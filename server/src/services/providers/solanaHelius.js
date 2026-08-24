@@ -68,6 +68,18 @@ const SOL_DECIMALS = 9;
  */
 const tokenMetaCache = new Map();
 
+/**
+ * Потолок кэша метаданных.
+ *
+ * У Solana спам-токенов на порядок больше, чем в других сетях: на одном
+ * биржевом адресе нашлось 3812 токен-аккаунтов. Без потолка карта росла
+ * бы всю жизнь процесса — за сутки работы это десятки тысяч записей
+ * о токенах, которые больше никогда не встретятся.
+ *
+ * Вытесняем самые старые: Map перебирает ключи в порядке вставки.
+ */
+const TOKEN_META_LIMIT = 5000;
+
 const enhanced = axios.create({ baseURL: ENHANCED_BASE, timeout: 45_000 });
 const rpc = axios.create({ baseURL: RPC_BASE, timeout: 45_000 });
 
@@ -207,9 +219,19 @@ async function fetchTokenMeta(mints) {
     for (const mint of batch) {
       if (!tokenMetaCache.has(mint)) tokenMetaCache.set(mint, { symbol: null, decimals: null });
     }
+
+    evictTokenMeta();
   }
 
   return tokenMetaCache;
+}
+
+/** Убрать самые старые записи, если кэш перерос потолок */
+function evictTokenMeta() {
+  while (tokenMetaCache.size > TOKEN_META_LIMIT) {
+    const oldest = tokenMetaCache.keys().next().value;
+    tokenMetaCache.delete(oldest);
+  }
 }
 
 /* ------------------------------ Разбор ответов ---------------------------- */
@@ -584,7 +606,9 @@ export const __testing = {
   exactAmounts,
   fetchPages,
   fetchTokenMeta,
+  evictTokenMeta,
   horizonSeconds,
+  TOKEN_META_LIMIT,
   toDate,
   tokenMetaCache,
   PAGE_SIZE,
