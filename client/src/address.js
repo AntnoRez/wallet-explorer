@@ -40,8 +40,22 @@ const EVM_RE = /^0x[0-9a-fA-F]{40}$/;
 const SOLANA_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 /**
+ * Адрес TON в необработанном виде: рабочая цепь, двоеточие, 32 байта в hex.
+ */
+const TON_RAW_RE = /^-?\d+:[0-9a-fA-F]{64}$/;
+
+/**
+ * Адрес TON в виде из кошелька: 48 символов base64url.
+ *
+ * Начинается с EQ или UQ — это флаг возврата средств, к тому, чей это
+ * кошелёк, отношения не имеющий. Обе формы — один и тот же адрес,
+ * канонизация на сервере сводит их вместе.
+ */
+const TON_FRIENDLY_RE = /^[EU]Q[A-Za-z0-9_-]{46}$/;
+
+/**
  * @param {string} raw адрес из поля ввода
- * @returns {'tron' | 'evm' | 'solana' | null} null — не похоже ни на что
+ * @returns {'tron' | 'evm' | 'solana' | 'ton' | null} null — не похоже ни на что
  */
 export function detectFamily(raw) {
   const value = typeof raw === 'string' ? raw.trim() : '';
@@ -50,6 +64,9 @@ export function detectFamily(raw) {
   // частный случай base58, и общий шаблон поглотил бы её
   if (TRON_RE.test(value)) return 'tron';
   if (EVM_RE.test(value)) return 'evm';
+  // TON проверяем до Solana: его user-friendly форма тоже буквенно-цифровая,
+  // но длиной ровно 48 и с обязательным префиксом EQ или UQ
+  if (TON_RAW_RE.test(value) || TON_FRIENDLY_RE.test(value)) return 'ton';
   if (SOLANA_RE.test(value)) return 'solana';
 
   return null;

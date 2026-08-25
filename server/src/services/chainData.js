@@ -18,9 +18,11 @@ import * as tronGrid from './providers/tronGrid.js';
 import * as tronScan from './providers/tronScan.js';
 import * as evmEtherscan from './providers/evmEtherscan.js';
 import * as solanaHelius from './providers/solanaHelius.js';
+import * as tonApi from './providers/tonApi.js';
 import * as tronAddress from './normalize/tronAddress.js';
 import * as evmAddress from './normalize/evmAddress.js';
 import * as solanaAddress from './normalize/solanaAddress.js';
+import * as tonAddress from './normalize/tonAddress.js';
 
 /**
  * Реализации по семействам сетей.
@@ -142,6 +144,25 @@ const FAMILIES = {
     normalizeAddress: (raw) => solanaAddress.toCanonical(raw),
     parseUserInput: (raw) => solanaAddress.parseUserInput(raw),
     isValidUserInput: (raw) => solanaAddress.isValidUserInput(raw),
+  },
+
+  ton: {
+    fetchTransfers: (networkKey, address, syncState, options) =>
+      // Один источник: события адреса содержат и переводы TON,
+      // и переводы жетонов
+      tonApi.fetchTransfers(networkKey, address, syncState, options).then((result) => ({
+        ...result,
+        partial: [],
+      })),
+
+    fetchBalance: (networkKey, address) => tonApi.fetchBalance(networkKey, address),
+
+    // Список жетонов приходит вместе с балансом
+    fetchTokenBalances: null,
+
+    normalizeAddress: (raw) => tonAddress.toCanonical(raw),
+    parseUserInput: (raw) => tonAddress.parseUserInput(raw),
+    isValidUserInput: (raw) => tonAddress.isValidUserInput(raw),
   },
 };
 
@@ -334,6 +355,9 @@ export function detectAddressFamily(raw) {
   if (tronAddress.isValidUserInput(raw)) return 'tron';
   if (evmAddress.isValidUserInput(raw)) return 'evm';
   if (solanaAddress.isValidUserInput(raw)) return 'solana';
+  // TON проверяем последним: его user-friendly форма — base64url, и
+  // короткие адреса Solana в неё не попадают, но порядок надёжнее
+  if (tonAddress.isValidUserInput(raw)) return 'ton';
   return null;
 }
 

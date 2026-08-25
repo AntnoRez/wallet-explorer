@@ -68,13 +68,26 @@ export const Transaction = sequelize.define(
 
     /** Отправитель, каноническая форма (для Tron — base58) */
     fromAddress: {
-      type: DataTypes.STRING(64),
+      /*
+       * 80 символов — с запасом под самую длинную известную форму.
+       * Замерено на живых данных:
+       *
+       *   Tron       34   base58
+       *   EVM        42   hex с префиксом 0x
+       *   Solana     44   base58
+       *   TON        66   рабочая цепь, двоеточие и 32 байта в hex
+       *
+       * Шестидесяти четырёх не хватало: TON не влезал, и сохранение
+       * падало с «value too long for type character varying(64)».
+       */
+      type: DataTypes.STRING(80),
       allowNull: false,
     },
 
     /** Получатель. null возможен, например при деплое контракта */
     toAddress: {
-      type: DataTypes.STRING(64),
+      /** Та же длина, что у fromAddress — см. пояснение выше */
+      type: DataTypes.STRING(80),
       allowNull: true,
     },
 
@@ -119,7 +132,11 @@ export const Transaction = sequelize.define(
 
     /** Адрес контракта токена. null = нативная монета */
     tokenContractAddress: {
-      type: DataTypes.STRING(64),
+      /*
+       * 80 символов — как у адресов кошельков: контракт токена это тот же
+       * адрес. Самый длинный у TON — 66 символов (жетон-мастер в raw-форме).
+       */
+      type: DataTypes.STRING(80),
       allowNull: true,
     },
 

@@ -194,6 +194,44 @@ export const NETWORKS = {
     },
   },
 
+  /*
+   * TON — своё семейство. Обслуживается providers/tonApi.js.
+   *
+   * Выбран tonapi, а не toncenter: он отдаёт разобранные действия
+   * (TonTransfer, JettonTransfer) вместе с символом токена и точностью,
+   * тогда как у toncenter пришлось бы дёргать два эндпоинта и отдельно
+   * искать метаданные.
+   */
+  ton: {
+    key: 'ton',
+    name: 'TON',
+    family: 'ton',
+    chainId: null,
+
+    nativeSymbol: 'TON',
+    // Единица — нанотон, 10^-9 TON
+    nativeDecimals: 9,
+
+    // Три формы записи: raw (0:hex), EQ и UQ. Канон — raw,
+    // см. normalize/tonAddress.js
+    addressFormat: 'raw',
+
+    // Пагинация курсорная, по логическому времени, — в блоках здесь
+    // ничего не считаем. Значения ради единообразия справочника
+    blockTimeSec: 5,
+    reorgBufferSec: 60,
+
+    explorer: {
+      base: 'https://tonviewer.com',
+      tx: (hash) => `https://tonviewer.com/transaction/${hash}`,
+      address: (address) => `https://tonviewer.com/${address}`,
+    },
+
+    api: {
+      tonapi: 'https://tonapi.io/v2',
+    },
+  },
+
   // Как добавить сеть — на примере Ethereum:
   //
   // 'eth-mainnet': {

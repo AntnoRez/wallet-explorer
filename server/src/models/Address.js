@@ -49,7 +49,11 @@ export const Address = sequelize.define(
      * services/normalize/tronAddress.js.
      */
     address: {
-      type: DataTypes.STRING(64),
+      /*
+       * 80 символов — как в Transaction. Самая длинная форма у TON:
+       * рабочая цепь, двоеточие и 32 байта в hex = 66 символов.
+       */
+      type: DataTypes.STRING(80),
       primaryKey: true,
       allowNull: false,
     },
