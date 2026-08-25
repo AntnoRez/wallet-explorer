@@ -20,9 +20,13 @@ export default function TransfersTable() {
   const rootAddress = useGraphStore((state) => state.rootAddress);
   const filters = useGraphStore((state) => state.filters);
   const expandNode = useGraphStore((state) => state.expandNode);
+  const wallet = useGraphStore((state) => state.wallet);
 
   const [state, setState] = useState({ status: 'idle', transfers: [], total: 0 });
   const [limit, setLimit] = useState(PAGE_SIZE);
+  // Храним АДРЕС КОНТРАКТА, а не символ: символы неуникальны — у одного
+  // тестового адреса нашлось два разных контракта с символом «ip292».
+  // 'native' означает монету сети, 'all' — без фильтра
   const [tokenFilter, setTokenFilter] = useState('all');
   const [directionFilter, setDirectionFilter] = useState('all');
 
@@ -35,6 +39,11 @@ export default function TransfersTable() {
     fetchTransfers(network, rootAddress, {
       days: filters.days,
       limit,
+      // Фильтр по токену — СЕРВЕРНЫЙ, в отличие от фильтра по
+      // направлению. Причина: страница ограничена лимитом, и отбор
+      // на клиенте показал бы «USDT: 16 переводов» там, где их в базе
+      // несколько сотен. Врущий фильтр хуже медленного
+      ...(tokenFilter !== 'all' ? { token: tokenFilter } : {}),
       signal: controller.signal,
     })
       .then((response) =>
@@ -46,17 +55,33 @@ export default function TransfersTable() {
       });
 
     return () => controller.abort();
-  }, [network, rootAddress, filters.days, limit]);
+  }, [network, rootAddress, filters.days, limit, tokenFilter]);
 
-  /** Токены, встреченные в выборке — для фильтра */
+  /**
+   * Токены для фильтра — из БАЛАНСА, а не из загруженной страницы.
+   *
+   * В балансе у каждого токена есть transferCount по всей истории адреса,
+   * а страница показывает лишь первые двести переводов: собрав список
+   * из неё, мы предложили бы фильтровать по тому, что случайно попало
+   * в начало.
+   */
   const tokens = useMemo(() => {
-    const counts = new Map();
-    for (const transfer of state.transfers) {
-      const symbol = transfer.tokenSymbol ?? '?';
-      counts.set(symbol, (counts.get(symbol) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [state.transfers]);
+    const balance = wallet?.balance;
+    if (!balance) return [];
+
+    const list = (balance.tokens ?? [])
+      .filter((token) => token.transferCount > 0)
+      .map((token) => ({
+        key: token.contractAddress,
+        symbol: token.symbol ?? shortenAddress(token.contractAddress),
+        count: token.transferCount,
+      }));
+
+    // Монета сети переводов в балансе не имеет — добавляем отдельно
+    list.unshift({ key: 'native', symbol: balance.native?.symbol ?? 'монета', count: null });
+
+    return list.sort((a, b) => (b.count ?? Infinity) - (a.count ?? Infinity));
+  }, [wallet]);
 
   /**
    * Фильтрация на клиенте.
@@ -67,14 +92,14 @@ export default function TransfersTable() {
    */
   const visible = useMemo(() => {
     return state.transfers.filter((transfer) => {
-      if (tokenFilter !== 'all' && (transfer.tokenSymbol ?? '?') !== tokenFilter) return false;
-
+      // По токену уже отфильтровал сервер — здесь только направление,
+      // оно должно переключаться мгновенно
       if (directionFilter === 'in' && transfer.toAddress !== rootAddress) return false;
       if (directionFilter === 'out' && transfer.fromAddress !== rootAddress) return false;
 
       return true;
     });
-  }, [state.transfers, tokenFilter, directionFilter, rootAddress]);
+  }, [state.transfers, directionFilter, rootAddress]);
 
   if (!rootAddress) {
     return <div className="p-6 text-sm text-muted">Введите адрес, чтобы увидеть переводы</div>;
@@ -95,19 +120,54 @@ export default function TransfersTable() {
 
         <span className="mx-1 h-4 w-px bg-line" />
 
+        {/*
+          Первые пять токенов — чипами, остальные в списке рядом.
+          Чипами всё показать нельзя: у активного адреса в Ethereum
+          нашёлся 101 разный токен, и шапка превратилась бы в простыню.
+          А списком одним тоже плохо — когда токенов два, лишний клик
+          ни за чем
+        */}
         <Chip active={tokenFilter === 'all'} onClick={() => setTokenFilter('all')}>
           все токены
         </Chip>
-        {tokens.slice(0, 5).map(([symbol, count]) => (
-          <Chip key={symbol} active={tokenFilter === symbol} onClick={() => setTokenFilter(symbol)}>
-            {symbol} <span className="text-muted">{count}</span>
+
+        {tokens.slice(0, 5).map((token) => (
+          <Chip
+            key={token.key}
+            active={tokenFilter === token.key}
+            onClick={() => setTokenFilter(token.key)}
+            title={
+              token.count === null
+                ? 'Монета сети'
+                : `${token.count} переводов за всю известную историю — ` +
+                  'за выбранный период их может быть меньше'
+            }
+          >
+            {token.symbol}
+            {token.count !== null && <span className="ml-1 text-muted">{token.count}</span>}
           </Chip>
         ))}
+
+        {tokens.length > 5 && (
+          <select
+            value={tokens.slice(0, 5).some((token) => token.key === tokenFilter) ? '' : tokenFilter}
+            onChange={(event) => event.target.value && setTokenFilter(event.target.value)}
+            className="rounded border border-line bg-surface-2 px-1.5 py-0.5 text-xs text-muted outline-none hover:text-ink"
+          >
+            <option value="">ещё {tokens.length - 5}…</option>
+            {tokens.slice(5).map((token) => (
+              <option key={token.key} value={token.key}>
+                {token.symbol} · {token.count}
+              </option>
+            ))}
+          </select>
+        )}
 
         <span className="ml-auto text-muted">
           {state.status === 'loading'
             ? 'загрузка…'
-            : `${visible.length} из ${state.total} ${plural(state.total, ['перевода', 'переводов', 'переводов'])}`}
+            : `${visible.length} из ${state.total} ${plural(state.total, ['перевода', 'переводов', 'переводов'])}` +
+              (tokenFilter !== 'all' ? ' по токену' : '')}
         </span>
       </div>
 
@@ -163,13 +223,14 @@ export default function TransfersTable() {
   );
 }
 
-function Chip({ children, active, onClick, tone }) {
+function Chip({ children, active, onClick, tone, title }) {
   const toneClass =
     tone === 'in' ? 'text-in' : tone === 'out' ? 'text-out' : 'text-ink';
 
   return (
     <button
       onClick={onClick}
+      title={title}
       className={[
         'rounded border px-2 py-1 transition-colors',
         active ? 'border-accent/50 bg-accent/10' : 'border-line bg-surface-2 hover:border-muted/40',
