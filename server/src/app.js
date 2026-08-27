@@ -9,6 +9,7 @@ import express from 'express';
 import cors from 'cors';
 
 import { config } from './config/env.js';
+import { apiLimiter } from './middleware/rateLimit.js';
 import { assertDatabaseConnection, closeDatabaseConnection } from './config/database.js';
 import { syncModels } from './models/index.js';
 import { router } from './routes/wallet.js';
@@ -35,6 +36,15 @@ app.use(
 );
 app.use(express.json({ limit: '100kb' }));
 
+/*
+ * Доверие к заголовку X-Forwarded-For.
+ *
+ * За обратным прокси без этого все запросы выглядят пришедшими с одного
+ * адреса, и лимит превращается в общий на всех пользователей сразу.
+ * Без прокси доверять нельзя: заголовок подделывается тривиально.
+ */
+if (config.server.trustProxy) app.set('trust proxy', 1);
+
 /**
  * Проверка живости — для мониторинга и для того, чтобы убедиться,
  * что сервер поднялся, не дёргая внешние API.
@@ -43,6 +53,9 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', network: config.app.defaultNetwork, uptime: process.uptime() });
 });
 
+// Ограничение частоты — до маршрутов, чтобы дорогие запросы не успели
+// уйти во внешние API
+app.use('/api', apiLimiter);
 app.use('/api', router);
 
 // Неизвестный путь — 404 с понятным телом, а не HTML-страница Express

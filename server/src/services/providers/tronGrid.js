@@ -16,6 +16,7 @@
 import { createHash } from 'node:crypto';
 import axios from 'axios';
 import { config } from '../../config/env.js';
+import { consume } from '../apiBudget.js';
 import { getNetwork } from '../../config/networks.js';
 import { toBase58 } from '../normalize/tronAddress.js';
 
@@ -83,6 +84,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @returns {Promise<any>}
  */
 async function get(path, params = {}) {
+  consume('trongrid');
+
   let lastError;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {

@@ -37,6 +37,7 @@
 import axios from 'axios';
 
 import { config } from '../../config/env.js';
+import { consume } from '../apiBudget.js';
 import { getNetwork } from '../../config/networks.js';
 import { toCanonical } from '../normalize/solanaAddress.js';
 
@@ -108,6 +109,7 @@ function sleep(ms) {
  */
 async function getEnhanced(path, params) {
   requireKey();
+  consume('helius');
 
   let lastError = null;
 
@@ -145,6 +147,7 @@ async function getEnhanced(path, params) {
  */
 async function callRpc(method, params) {
   requireKey();
+  consume('helius');
 
   let lastError = null;
 

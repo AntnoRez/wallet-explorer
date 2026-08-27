@@ -100,6 +100,30 @@ export const config = {
       .split(',')
       .map((origin) => origin.trim())
       .filter(Boolean),
+    /**
+     * Сколько запросов в минуту с одного адреса.
+     *
+     * Шестьдесят — это запрос в секунду непрерывно; живой человек столько
+     * не делает даже при активной работе с графом.
+     */
+    rateLimitPerMinute: num('RATE_LIMIT_PER_MINUTE', 60),
+
+    /**
+     * Отдельный, более строгий предел для запросов, которые ГАРАНТИРОВАННО
+     * идут во внешние API: ?refresh, ?loadMore и запрос меток.
+     */
+    rateLimitExternalPerMinute: num('RATE_LIMIT_EXTERNAL_PER_MINUTE', 10),
+
+    /**
+     * Доверять ли заголовку X-Forwarded-For.
+     *
+     * За nginx включать ОБЯЗАТЕЛЬНО, иначе все запросы придут с одного
+     * адреса — самого nginx — и лимит станет общим на всех. Без прокси
+     * включать НЕЛЬЗЯ: заголовок подделывается, и лимит обходится
+     * одной строкой.
+     */
+    trustProxy: bool('TRUST_PROXY', false),
+
     get isDev() {
       return this.nodeEnv !== 'production';
     },
@@ -155,6 +179,19 @@ export const config = {
 
   app: {
     defaultNetwork: str('DEFAULT_NETWORK', 'tron'),
+
+    /**
+     * Пределы исходящих запросов к внешним API, по источникам.
+     *
+     * Пусто — значит действуют значения по умолчанию из
+     * services/apiBudget.js. Переопределять стоит, когда узнаешь
+     * настоящий расход по личному кабинету провайдера.
+     */
+    apiBudget: {
+      etherscanPerDay: num('ETHERSCAN_PER_DAY', 0) || undefined,
+      heliusPerDay: num('HELIUS_PER_DAY', 0) || undefined,
+      tonapiPerDay: num('TONAPI_PER_DAY', 0) || undefined,
+    },
 
     /** Сколько минут данные адреса считаются достаточно свежими */
     cacheTtlMinutes: num('CACHE_TTL_MINUTES', 60),

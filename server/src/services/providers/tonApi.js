@@ -29,6 +29,7 @@
 import axios from 'axios';
 
 import { config } from '../../config/env.js';
+import { consume } from '../apiBudget.js';
 import { getNetwork } from '../../config/networks.js';
 import { toCanonical } from '../normalize/tonAddress.js';
 
@@ -134,6 +135,7 @@ function requireKey() {
  */
 async function get(path, params = {}) {
   requireKey();
+  consume('tonapi');
 
   let lastError = null;
 

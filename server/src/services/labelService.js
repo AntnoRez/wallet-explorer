@@ -19,6 +19,7 @@ import axios from 'axios';
 import { Op } from 'sequelize';
 import { Address } from '../models/index.js';
 import { config } from '../config/env.js';
+import { consume } from './apiBudget.js';
 import { getNetwork } from '../config/networks.js';
 
 /**
@@ -88,6 +89,7 @@ const client = axios.create({
  */
 async function fetchLabel(baseUrl, address) {
   try {
+    consume('tronscan');
     let data;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {

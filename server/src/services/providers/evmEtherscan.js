@@ -33,6 +33,7 @@
 import axios from 'axios';
 
 import { config } from '../../config/env.js';
+import { consume } from '../apiBudget.js';
 import { getNetwork } from '../../config/networks.js';
 import { toCanonical } from '../normalize/evmAddress.js';
 
@@ -95,6 +96,8 @@ const client = axios.create({
  * @returns {Promise<any>} поле result из ответа
  */
 async function get(network, params) {
+  consume('etherscan');
+
   // Ключ обязателен, в отличие от TronGrid: V2 без него не отвечает вовсе.
   // Проверяем явно, иначе получим невнятное NOTOK на каждый запрос
   if (!config.api.etherscanKey) {

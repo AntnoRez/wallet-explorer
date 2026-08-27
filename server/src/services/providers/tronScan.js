@@ -20,6 +20,7 @@
 
 import axios from 'axios';
 import { config } from '../../config/env.js';
+import { consume } from '../apiBudget.js';
 import { getNetwork } from '../../config/networks.js';
 
 const NETWORK_KEY = 'tron';
@@ -106,6 +107,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @param {Record<string, string|number|boolean>} [params]
  */
 async function get(path, params = {}) {
+  consume('tronscan');
+
   let lastError;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
